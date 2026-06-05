@@ -299,10 +299,9 @@ When CARDS is nil, validate all loaded cards."
                   answer-set))
           (setq errors (cons coverage-error errors))))
       (if (not (plist-get info-summary :ok))
-          (setq errors
-                (emacs-srs-trainer-validate--add-error
-                 errors "Info introduction manual unavailable: %s"
-                 (or (plist-get info-summary :message) "unknown error")))
+          (push (format "Info introduction manual unavailable; skipping Info coverage extraction: %s"
+                        (or (plist-get info-summary :message) "unknown error"))
+                warnings)
         (dolist (coverage-error
                  (emacs-srs-trainer-validate--coverage-errors
                   "Info"

@@ -229,8 +229,10 @@ The tutorial extractor locates the installed tutorial through
 ```
 
 The Info extractor locates the installed `info.info` file through Emacs's
-Info directory list. If either source document is missing, validation and
-doctor report a clear failure.
+Info directory list. If the Emacs Tutorial is missing, validation reports
+a clear failure. If `info.info` is unavailable, validation still checks
+the curated Info cards but reports a warning that source coverage was
+skipped for that manual.
 
 ## Adding Decks
 
