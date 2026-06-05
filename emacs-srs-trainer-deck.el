@@ -36,11 +36,15 @@
 (defconst emacs-srs-trainer-tutorial-deck-name "Emacs Tutorial"
   "Name of the built-in Emacs Tutorial deck.")
 
+(defconst emacs-srs-trainer-info-deck-name "Info: An Introduction"
+  "Name of the built-in Info introduction deck.")
+
 (defcustom emacs-srs-trainer-key-display-alist
   '(("DEL" . "Backspace/Delete (DEL)")
     ("M-DEL" . "M-Backspace/Delete (M-DEL)")
     ("<backspace>" . "Backspace/Delete (<backspace>)")
-    ("M-<backspace>" . "M-Backspace/Delete (M-<backspace>)"))
+    ("M-<backspace>" . "M-Backspace/Delete (M-<backspace>)")
+    ("<backtab>" . "Shift-TAB (<backtab>)"))
   "Alist mapping canonical key notation to friendlier display text."
   :type '(alist :key-type string :value-type string)
   :group 'emacs-srs-trainer)
@@ -51,6 +55,7 @@
    ((member token '("<return>" "<Return>")) "RET")
    ((member token '("<tab>" "<Tab>")) "TAB")
    ((member token '("<escape>" "<Escape>")) "ESC")
+   ((member token '("<BACKSPACE>" "<Backspace>")) "<backspace>")
    (t token)))
 
 (defun emacs-srs-trainer-canonicalize-key-description (description)
@@ -134,6 +139,10 @@ The built-in tutorial deck is registered when this file is loaded."
   "Return cards for deck NAME."
   (cdr (assoc name (emacs-srs-trainer-load-decks))))
 
+(defun emacs-srs-trainer-deck-names ()
+  "Return sorted names of registered decks."
+  (sort (mapcar #'car (emacs-srs-trainer-load-decks)) #'string<))
+
 (defun emacs-srs-trainer-topics (&optional cards)
   "Return sorted unique topics in CARDS, or all loaded cards."
   (sort (delete-dups (mapcar #'emacs-srs-trainer-card-topic
@@ -152,20 +161,35 @@ with group order and item order preserved."
                                           (cdr groups))
                              collect (cons item rest)))))
 
-(defun emacs-srs-trainer-deck--card
-    (id topic command question answer tags source-ref &optional accepted metadata)
-  "Create one tutorial deck card plist."
+(defun emacs-srs-trainer-deck--card-for-deck
+    (deck deck-tag id topic command question answer tags source-ref
+          &optional accepted metadata)
+  "Create one card plist for DECK with DECK-TAG."
   (list :id id
-        :deck emacs-srs-trainer-tutorial-deck-name
+        :deck deck
         :topic topic
         :command command
         :question question
         :canonical-answer answer
         :accepted-answers accepted
-        :tags (cons "tutorial" tags)
+        :tags (cons deck-tag tags)
         :source-ref source-ref
         :display-answer (plist-get metadata :display-answer)
         :metadata metadata))
+
+(defun emacs-srs-trainer-deck--card
+    (id topic command question answer tags source-ref &optional accepted metadata)
+  "Create one tutorial deck card plist."
+  (emacs-srs-trainer-deck--card-for-deck
+   emacs-srs-trainer-tutorial-deck-name "tutorial"
+   id topic command question answer tags source-ref accepted metadata))
+
+(defun emacs-srs-trainer-deck--info-card
+    (id topic command question answer tags source-ref &optional accepted metadata)
+  "Create one Info introduction deck card plist."
+  (emacs-srs-trainer-deck--card-for-deck
+   emacs-srs-trainer-info-deck-name "info"
+   id topic command question answer tags source-ref accepted metadata))
 
 (defun emacs-srs-trainer-deck-generate-prefix-cards ()
   "Generate deterministic numeric-prefix cards for the tutorial deck."
@@ -551,9 +575,209 @@ with group order and item order preserved."
           (emacs-srs-trainer-deck-generate-prefix-cards))
   "Curated Emacs Tutorial deck.")
 
+(defconst emacs-srs-trainer-info-introduction-cards
+  (list
+   ;; Top-level orientation and basic node movement.
+   (emacs-srs-trainer-deck--info-card
+    "info-start-instruction-sequence" "Orientation" 'Info-help
+    "Start the programmed instruction sequence for using Info." "h"
+    '("orientation" "help") "INFO:Top")
+   (emacs-srs-trainer-deck--info-card
+    "info-command-summary" "Orientation" 'Info-summary
+    "Show the Info command summary." "?"
+    '("orientation" "help") "INFO:Top")
+   (emacs-srs-trainer-deck--info-card
+    "info-open-info-reader" "Orientation" 'info
+    "Open the Info manual reader from Emacs Help." "C-h i"
+    '("orientation" "help") "INFO:Create Info buffer")
+   (emacs-srs-trainer-deck--info-card
+    "info-next-node" "Node movement" 'Info-next
+    "Go to the following node at the same level." "n"
+    '("movement" "nodes") "INFO:Help")
+   (emacs-srs-trainer-deck--info-card
+    "info-previous-node" "Node movement" 'Info-prev
+    "Go to the previous node at the same level." "p"
+    '("movement" "nodes") "INFO:Help-P")
+   (emacs-srs-trainer-deck--info-card
+    "info-scroll-forward" "Node movement" 'Info-scroll-up
+    "Scroll forward one screenful in Info." "SPC"
+    '("movement" "scrolling") "INFO:Help-Small-Screen")
+   (emacs-srs-trainer-deck--info-card
+    "info-scroll-backward" "Node movement" 'Info-scroll-down
+    "Scroll backward one screenful in Info." "DEL"
+    '("movement" "scrolling") "INFO:Help-Small-Screen"
+    '("<backspace>" "<BACKSPACE>" "S-SPC" "S-<SPC>")
+    '(:display-answer "Backspace/Delete (DEL)"))
+   (emacs-srs-trainer-deck--info-card
+    "info-beginning-of-node" "Node movement" 'beginning-of-buffer
+    "Move to the beginning of the current Info node." "b"
+    '("movement" "nodes") "INFO:Help-^L")
+   (emacs-srs-trainer-deck--info-card
+    "info-recenter-display" "Node movement" 'recenter-top-bottom
+    "Redisplay an Info screen that looks garbled." "C-l"
+    '("movement" "display") "INFO:Help-^L")
+   (emacs-srs-trainer-deck--info-card
+    "info-next-preorder-node" "Node movement" 'Info-forward-node
+    "Move immediately to the following node in file order regardless of tree level." "]"
+    '("movement" "nodes") "INFO:Help-]")
+   (emacs-srs-trainer-deck--info-card
+    "info-previous-preorder-node" "Node movement" 'Info-backward-node
+    "Move immediately to the preceding node in file order regardless of tree level." "["
+    '("movement" "nodes") "INFO:Help-]")
+   (emacs-srs-trainer-deck--info-card
+    "info-visible-mode" "Emacs Info display" 'visible-mode
+    "Start the named-command prompt before toggling visibility of hidden Info link text." "M-x"
+    '("display" "extended-command") "INFO:Help-Inv" '("<ESC> x")
+    '(:command-name "visible-mode"))
+
+   ;; Menus, links, references, and history.
+   (emacs-srs-trainer-deck--info-card
+    "info-menu-by-name" "Menus and links" 'Info-menu
+    "Start choosing a menu subtopic by name." "m"
+    '("menus") "INFO:Help-M")
+   (emacs-srs-trainer-deck--info-card
+    "info-cancel-prompt" "Menus and links" 'keyboard-quit
+    "Cancel an active menu, reference, or node-name prompt." "C-g"
+    '("menus" "references" "quit") "INFO:Help-M")
+   (emacs-srs-trainer-deck--info-card
+    "info-complete-menu-or-reference-name" "Menus and links" 'minibuffer-complete
+    "Complete a partially typed menu item or reference name." "TAB"
+    '("menus" "references" "completion") "INFO:Help-M")
+   (emacs-srs-trainer-deck--info-card
+    "info-next-link" "Menus and links" 'Info-next-reference
+    "Move point to the next menu item or cross-reference link." "TAB"
+    '("menus" "references" "movement") "INFO:Help-M")
+   (emacs-srs-trainer-deck--info-card
+    "info-previous-link" "Menus and links" 'Info-prev-reference
+    "Move point to the previous menu item or cross-reference link." "<backtab>"
+    '("menus" "references" "movement") "INFO:Help-M"
+    '("M-TAB" "C-M-i" "S-<tab>" "S-TAB")
+    '(:display-answer "Shift-TAB (<backtab>)"))
+   (emacs-srs-trainer-deck--info-card
+    "info-follow-nearest-link" "Menus and links" 'Info-follow-nearest-node
+    "Follow the link at point or accept the default menu/reference target." "RET"
+    '("menus" "references") "INFO:Help-M" '("<Return>" "<return>"))
+   (emacs-srs-trainer-deck--info-card
+    "info-up-node" "Menus and links" 'Info-up
+    "Move from a subnode to its parent node." "u"
+    '("movement" "nodes") "INFO:Help-FOO")
+   (emacs-srs-trainer-deck--info-card
+    "info-follow-reference-by-name" "Cross references" 'Info-follow-reference
+    "Start choosing a cross-reference by name." "f"
+    '("references") "INFO:Help-Xref")
+   (emacs-srs-trainer-deck--info-card
+    "info-list-reference-names" "Cross references" 'Info-follow-reference
+    "While choosing a cross-reference by name display the available reference names." "f ?"
+    '("references" "completion") "INFO:Help-Xref")
+   (emacs-srs-trainer-deck--info-card
+    "info-history-back" "History" 'Info-history-back
+    "Retrace one step backward through Info history." "l"
+    '("history" "movement") "INFO:Help-Int")
+   (emacs-srs-trainer-deck--info-card
+    "info-history-forward" "History" 'Info-history-forward
+    "Move forward through Info history after retracing." "r"
+    '("history" "movement") "INFO:Help-Int")
+   (emacs-srs-trainer-deck--info-card
+    "info-history-list" "History" 'Info-history
+    "Display a virtual node listing visited Info nodes." "L"
+    '("history") "INFO:Help-Int")
+   (emacs-srs-trainer-deck--info-card
+    "info-directory" "Navigation shortcuts" 'Info-directory
+    "Jump to the Info directory node." "d"
+    '("movement" "directory") "INFO:Help-Int")
+   (emacs-srs-trainer-deck--info-card
+    "info-top-node" "Navigation shortcuts" 'Info-top-node
+    "Jump to the top node of the current manual." "t"
+    '("movement" "nodes") "INFO:Help-Int")
+   (emacs-srs-trainer-deck--info-card
+    "info-quit" "Orientation" 'quit-window
+    "Quit Info and return to the previous Emacs window setup." "q"
+    '("quit") "INFO:Help-Q")
+
+   ;; Advanced Info commands.
+   (emacs-srs-trainer-deck--info-card
+    "info-quoted-insert" "Advanced search" 'quoted-insert
+    "Quote the next input character so it is inserted literally in an Info prompt." "C-q"
+    '("advanced" "search" "quoting") "INFO:Advanced")
+   (emacs-srs-trainer-deck--info-card
+    "info-quoted-insert-question-mark" "Advanced search" 'quoted-insert
+    "Insert a literal question-mark character into an Info prompt such as a search string." "C-q ?"
+    '("advanced" "search" "quoting") "INFO:Advanced")
+   (emacs-srs-trainer-deck--info-card
+    "info-search-text" "Advanced search" 'Info-search
+    "Search the text of the current Info file for a string." "s"
+    '("advanced" "search") "INFO:Search Text")
+   (emacs-srs-trainer-deck--info-card
+    "info-isearch-forward" "Advanced search" 'isearch-forward
+    "Start an incremental forward search in Info." "C-s"
+    '("advanced" "search" "isearch") "INFO:Search Text")
+   (emacs-srs-trainer-deck--info-card
+    "info-isearch-backward" "Advanced search" 'isearch-backward
+    "Start an incremental reverse search in Info." "C-r"
+    '("advanced" "search" "isearch") "INFO:Search Text")
+   (emacs-srs-trainer-deck--info-card
+    "info-index-search" "Advanced index search" 'Info-index
+    "Look up a subject in the manual's indices." "i"
+    '("advanced" "index") "INFO:Search Index")
+   (emacs-srs-trainer-deck--info-card
+    "info-index-next" "Advanced index search" 'Info-index-next
+    "Move to the next matching index entry after an index lookup." ","
+    '("advanced" "index") "INFO:Search Index")
+   (emacs-srs-trainer-deck--info-card
+    "info-virtual-index" "Advanced index search" 'Info-virtual-index
+    "Build a virtual node showing index search results." "I"
+    '("advanced" "index") "INFO:Search Index")
+   (emacs-srs-trainer-deck--info-card
+    "info-apropos" "Advanced index search" 'info-apropos
+    "Start the named-command prompt before searching all installed Info indices." "M-x"
+    '("advanced" "index" "extended-command") "INFO:Search Index" '("<ESC> x")
+    '(:command-name "info-apropos"))
+   (emacs-srs-trainer-deck--info-card
+    "info-goto-node" "Advanced node jumps" 'Info-goto-node
+    "Start a jump to an Info node by name." "g"
+    '("advanced" "movement" "nodes") "INFO:Go to node")
+   (emacs-srs-trainer-deck--info-card
+    "info-goto-whole-file" "Advanced node jumps" 'Info-goto-node
+    "Display every node in the current Info file as one whole-file view." "g * RET"
+    '("advanced" "movement" "nodes") "INFO:Go to node" '("g * <Return>" "g * <return>"))
+   (emacs-srs-trainer-deck--info-card
+    "info-first-menu-item" "Advanced menu shortcuts" 'Info-nth-menu-item
+    "Choose the first menu item by number." "1"
+    '("advanced" "menus") "INFO:Choose menu subtopic")
+   (emacs-srs-trainer-deck--info-card
+    "info-ninth-menu-item" "Advanced menu shortcuts" 'Info-nth-menu-item
+    "Choose the ninth menu item by number." "9"
+    '("advanced" "menus") "INFO:Choose menu subtopic")
+   (emacs-srs-trainer-deck--info-card
+    "info-clone-buffer" "Advanced Info buffers" 'clone-buffer
+    "Create an independent copy of the current Info buffer in another window." "M-n"
+    '("advanced" "buffers" "windows") "INFO:Create Info buffer" '("<ESC> n"))
+   (emacs-srs-trainer-deck--info-card
+    "info-menu-new-buffer" "Advanced Info buffers" 'Info-menu
+    "Open a selected menu item in a new Info buffer." "C-u m"
+    '("advanced" "buffers" "menus" "prefix") "INFO:Create Info buffer")
+   (emacs-srs-trainer-deck--info-card
+    "info-goto-new-buffer" "Advanced Info buffers" 'Info-goto-node
+    "Open a named node in a new Info buffer." "C-u g"
+    '("advanced" "buffers" "nodes" "prefix") "INFO:Create Info buffer")
+   (emacs-srs-trainer-deck--info-card
+    "info-numbered-info-buffer" "Advanced Info buffers" 'info
+    "Switch to the second numbered Info buffer creating it if needed." "C-u 2 C-h i"
+    '("advanced" "buffers" "prefix") "INFO:Create Info buffer")
+   (emacs-srs-trainer-deck--info-card
+    "info-display-manual" "Advanced Info buffers" 'info-display-manual
+    "Start the named-command prompt before showing a manual by name while reusing an existing Info buffer when possible." "M-x"
+    '("advanced" "buffers" "extended-command") "INFO:Create Info buffer" '("<ESC> x")
+    '(:command-name "info-display-manual")))
+  "Curated deck derived from the installed Info manual introduction.")
+
 (emacs-srs-trainer-register-deck
  emacs-srs-trainer-tutorial-deck-name
  emacs-srs-trainer-tutorial-cards)
+
+(emacs-srs-trainer-register-deck
+ emacs-srs-trainer-info-deck-name
+ emacs-srs-trainer-info-introduction-cards)
 
 (provide 'emacs-srs-trainer-deck)
 

@@ -13,6 +13,7 @@
 (require 'subr-x)
 (require 'emacs-srs-trainer-deck)
 (require 'emacs-srs-trainer-tutorial)
+(require 'emacs-srs-trainer-info)
 
 (defun emacs-srs-trainer-validate--ok-p (result)
   "Return non-nil when validation RESULT has no errors."
@@ -25,7 +26,8 @@
 (defun emacs-srs-trainer-validate--source-ref-p (source-ref)
   "Return non-nil when SOURCE-REF is well formed."
   (and (stringp source-ref)
-       (string-match-p (rx bos "TUTORIAL:" (+ not-newline) eos) source-ref)))
+       (string-match-p (rx bos (or "TUTORIAL:" "INFO:") (+ not-newline) eos)
+                       source-ref)))
 
 (defun emacs-srs-trainer-validate--answer-parses-p (answer)
   "Return non-nil when ANSWER parses with `kbd'."
@@ -39,7 +41,8 @@
   "Return non-nil when ANSWER depends on a non-universal hardware key."
   (condition-case nil
       (member (emacs-srs-trainer-normalize-key answer)
-              '("<next>" "<prior>" "<pagedown>" "<pageup>"))
+              '("<next>" "<prior>" "<pagedown>" "<pageup>"
+                "<PageDown>" "<PageUp>"))
     (error nil)))
 
 (defun emacs-srs-trainer-validate--plain-printable-answer-p (answer)
@@ -55,6 +58,13 @@
   (condition-case nil
       (member (emacs-srs-trainer-normalize-key answer) '("DEL" "M-DEL"))
     (error nil)))
+
+(defun emacs-srs-trainer-validate--plain-printable-key-description-p
+    (description)
+  "Return non-nil when DESCRIPTION is one unmodified printable character."
+  (and (stringp description)
+       (= (length description) 1)
+       (string-match-p (rx graph) description)))
 
 (defun emacs-srs-trainer-validate--question-contains-p (question phrase)
   "Return non-nil when QUESTION contains PHRASE case-insensitively."
@@ -101,7 +111,16 @@
       (condition-case nil
           (let* ((normalized (emacs-srs-trainer-normalize-key answer))
                  (tokens (split-string normalized " " t)))
-            (push normalized phrases)
+            (if (emacs-srs-trainer-validate--plain-printable-key-description-p
+                 normalized)
+                (let ((lower-normalized (downcase normalized)))
+                  (setq phrases
+                        (append (list (format "%s key" lower-normalized)
+                                      (format "letter %s" lower-normalized)
+                                      (format "type %s" lower-normalized)
+                                      (format "press %s" lower-normalized))
+                                phrases)))
+              (push normalized phrases))
             (dolist (token tokens)
               (setq phrases
                     (append (emacs-srs-trainer-validate--question-leak-phrases-for-token
@@ -158,6 +177,35 @@
               (puthash (emacs-srs-trainer-normalize-key answer) t table)
             (error nil)))))
     table))
+
+(defun emacs-srs-trainer-validate--ignored-answer-table (entries)
+  "Return a hash table of ignored normalized key candidates from ENTRIES."
+  (let ((table (make-hash-table :test 'equal)))
+    (dolist (entry entries table)
+      (let ((key (car entry)))
+        (condition-case nil
+            (puthash (emacs-srs-trainer-normalize-key key) (cdr entry) table)
+          (error (puthash key (cdr entry) table)))))))
+
+(defun emacs-srs-trainer-validate--coverage-errors
+    (label candidates ignored-entries answer-set)
+  "Return coverage errors for LABEL CANDIDATES.
+
+IGNORED-ENTRIES is an alist of intentionally ignored keys.  ANSWER-SET
+is the normalized answer hash table for all loaded cards."
+  (let ((ignored (emacs-srs-trainer-validate--ignored-answer-table
+                  ignored-entries))
+        (errors nil))
+    (dolist (candidate candidates)
+      (let ((key (plist-get candidate :key)))
+        (unless (or (gethash key answer-set)
+                    (gethash key ignored))
+          (push (format "Extracted %s key is not covered or ignored: %s (%s)"
+                        label
+                        key
+                        (plist-get candidate :source-ref))
+                errors))))
+    (nreverse errors)))
 
 (defun emacs-srs-trainer-validate-deck-data (&optional cards)
   "Validate CARDS and return a result plist.
@@ -228,38 +276,51 @@ When CARDS is nil, validate all loaded cards."
         (setq errors (emacs-srs-trainer-validate--add-error
                       errors "Generated prefix cards are not deterministic"))))
     (let* ((extract-summary (emacs-srs-trainer-tutorial-extraction-summary))
-           (candidates (when (plist-get extract-summary :ok)
-                         (emacs-srs-trainer-tutorial-extract-keybindings
-                          (plist-get extract-summary :path))))
-           (answer-set (emacs-srs-trainer-validate--answer-set deck-cards))
-           (ignored (make-hash-table :test 'equal))
-           (missing nil))
-      (dolist (entry emacs-srs-trainer-tutorial-ignored-keybindings)
-        (puthash (car entry) (cdr entry) ignored))
+           (tutorial-candidates
+            (when (plist-get extract-summary :ok)
+              (emacs-srs-trainer-tutorial-extract-keybindings
+               (plist-get extract-summary :path))))
+           (info-summary (emacs-srs-trainer-info-extraction-summary))
+           (info-candidates (when (plist-get info-summary :ok)
+                              (plist-get info-summary :candidates)))
+           (answer-set (emacs-srs-trainer-validate--answer-set deck-cards)))
       (if (not (plist-get extract-summary :ok))
           (setq errors (emacs-srs-trainer-validate--add-error
                         errors "Tutorial file unavailable: %s"
                         (or (plist-get extract-summary :message) "unknown error")))
-        (dolist (candidate candidates)
-          (let ((key (plist-get candidate :key)))
-            (unless (or (gethash key answer-set)
-                        (gethash key ignored))
-              (push candidate missing))))
-        (when missing
-          (dolist (candidate (sort missing
-                                   (lambda (a b)
-                                     (string< (plist-get a :key)
-                                              (plist-get b :key)))))
-            (setq errors (emacs-srs-trainer-validate--add-error
-                          errors "Extracted tutorial key is not covered or ignored: %s (%s)"
-                          (plist-get candidate :key)
-                          (plist-get candidate :source-ref))))))
+        (dolist (coverage-error
+                 (emacs-srs-trainer-validate--coverage-errors
+                  "tutorial"
+                  (sort tutorial-candidates
+                        (lambda (a b)
+                          (string< (plist-get a :key)
+                                   (plist-get b :key))))
+                  emacs-srs-trainer-tutorial-ignored-keybindings
+                  answer-set))
+          (setq errors (cons coverage-error errors))))
+      (if (not (plist-get info-summary :ok))
+          (setq errors
+                (emacs-srs-trainer-validate--add-error
+                 errors "Info introduction manual unavailable: %s"
+                 (or (plist-get info-summary :message) "unknown error")))
+        (dolist (coverage-error
+                 (emacs-srs-trainer-validate--coverage-errors
+                  "Info"
+                  info-candidates
+                  emacs-srs-trainer-info-ignored-keybindings
+                  answer-set))
+          (setq errors (cons coverage-error errors)))
+        (setq info-summary
+              (plist-put info-summary
+                         :ignored-count
+                         (length emacs-srs-trainer-info-ignored-keybindings))))
       (list :ok (null errors)
             :errors (nreverse errors)
             :warnings (nreverse warnings)
             :card-count (length deck-cards)
-            :extracted-count (length candidates)
-            :ignored-count (length emacs-srs-trainer-tutorial-ignored-keybindings)))))
+            :extracted-count (length tutorial-candidates)
+            :ignored-count (length emacs-srs-trainer-tutorial-ignored-keybindings)
+            :info-extraction info-summary))))
 
 (defun emacs-srs-trainer-validate-format-result (result)
   "Format validation RESULT for display."
@@ -269,6 +330,12 @@ When CARDS is nil, validate all loaded cards."
    (format "Extracted tutorial keys: %d\n" (or (plist-get result :extracted-count) 0))
    (format "Explicitly ignored extracted keys: %d\n"
            (or (plist-get result :ignored-count) 0))
+   (when-let* ((info-result (plist-get result :info-extraction)))
+     (concat
+      (format "Extracted Info keys: %d\n"
+              (or (plist-get info-result :count) 0))
+      (format "Explicitly ignored extracted Info keys: %d\n"
+              (or (plist-get info-result :ignored-count) 0))))
    (when (plist-get result :warnings)
      (concat "\nWarnings:\n"
              (mapconcat (lambda (warning) (concat "- " warning))

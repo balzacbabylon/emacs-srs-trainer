@@ -23,6 +23,7 @@
 (require 'emacs-srs-trainer-scheduler)
 (require 'emacs-srs-trainer-storage)
 (require 'emacs-srs-trainer-tutorial)
+(require 'emacs-srs-trainer-info)
 (require 'emacs-srs-trainer-validate)
 
 (defcustom emacs-srs-trainer-review-buffer-name "*Emacs SRS Trainer*"
@@ -275,27 +276,28 @@ When DUE-ONLY is non-nil, count only cards due at NOW."
       (let ((days (ceiling (/ rounded 86400.0))))
         (format "%d day%s" days (if (= days 1) "" "s")))))))
 
-(defun emacs-srs-trainer-queue-counts (&optional topic now state due-only)
-  "Return queue counts for the default deck.
+(defun emacs-srs-trainer-queue-counts (&optional topic now state due-only deck)
+  "Return queue counts for DECK, defaulting to the default deck.
 
 When TOPIC is non-nil, count only cards whose topic matches it.  When
 DUE-ONLY is non-nil, count only cards due at NOW."
   (let* ((timestamp (or now (emacs-srs-trainer-scheduler-now)))
          (loaded-state (or state (emacs-srs-trainer-storage-load)))
+         (deck-name (or deck emacs-srs-trainer-default-deck))
          (cards (cl-remove-if-not
                  (lambda (card)
                    (or (null topic)
                        (string= (emacs-srs-trainer-card-topic card) topic)))
                  (emacs-srs-trainer-deck-by-name
-                  emacs-srs-trainer-default-deck))))
+                  deck-name))))
     (emacs-srs-trainer--queue-counts-for-cards
      cards loaded-state timestamp due-only)))
 
-(defun emacs-srs-trainer-due-counts (&optional topic now state)
-  "Return due queue counts for the default deck.
+(defun emacs-srs-trainer-due-counts (&optional topic now state deck)
+  "Return due queue counts for DECK, defaulting to the default deck.
 
 When TOPIC is non-nil, count only cards whose topic matches it."
-  (emacs-srs-trainer-queue-counts topic now state t))
+  (emacs-srs-trainer-queue-counts topic now state t deck))
 
 (defun emacs-srs-trainer--shuffle-list (items)
   "Return a shuffled copy of ITEMS."
@@ -329,14 +331,16 @@ inside each queue are shuffled when
                           (emacs-srs-trainer--shuffle-list ordered)
                         ordered)))))
 
-(defun emacs-srs-trainer-due-cards (&optional all topic now state)
+(defun emacs-srs-trainer-due-cards (&optional all topic now state deck)
   "Return cards due for review.
 
 When ALL is non-nil, return all cards.  When TOPIC is non-nil, only
-return cards whose topic matches it."
+return cards whose topic matches it.  DECK defaults to
+`emacs-srs-trainer-default-deck'."
   (let* ((timestamp (or now (emacs-srs-trainer-scheduler-now)))
          (loaded-state (or state (emacs-srs-trainer-storage-load)))
-         (cards (emacs-srs-trainer-deck-by-name emacs-srs-trainer-default-deck)))
+         (cards (emacs-srs-trainer-deck-by-name
+                 (or deck emacs-srs-trainer-default-deck))))
     (cl-remove-if-not
      (lambda (card)
        (and (or (null topic)
@@ -366,13 +370,13 @@ return cards whose topic matches it."
       (goto-char (point-min)))))
 
 (defun emacs-srs-trainer--render-no-cards
-    (buffer message &optional state-counts due-counts)
+    (buffer message &optional state-counts due-counts deck-name)
   "Render MESSAGE in BUFFER for an empty review."
   (with-current-buffer buffer
     (let ((inhibit-read-only t))
       (erase-buffer)
       (emacs-srs-trainer-review-mode)
-      (insert (format "Deck: %s\n" emacs-srs-trainer-default-deck))
+      (insert (format "Deck: %s\n" (or deck-name emacs-srs-trainer-default-deck)))
       (insert (format "State: %s\n" (emacs-srs-trainer-format-queue-counts
                                      (or state-counts
                                          (emacs-srs-trainer--empty-queue-counts)))))
@@ -425,13 +429,14 @@ return cards whose topic matches it."
       (insert "During answer capture, trainer controls are not active.\n"))))
 
 (defun emacs-srs-trainer--review-cards
-    (cards &optional buffer refresh-function topic)
+    (cards &optional buffer refresh-function topic deck)
   "Review CARDS in BUFFER and return a summary plist.
 
 When REFRESH-FUNCTION is non-nil, call it after every answer with the
-latest storage state and timestamp to refresh the due queue.  TOPIC is
-used only for display counts."
+latest storage state and timestamp to refresh the due queue.  TOPIC and
+DECK are used only for display counts."
   (let* ((review-buffer (or buffer (get-buffer-create emacs-srs-trainer-review-buffer-name)))
+         (deck-name (or deck emacs-srs-trainer-default-deck))
          (state (emacs-srs-trainer-storage-load))
          (reviewed 0)
          (correct-count 0)
@@ -441,8 +446,9 @@ used only for display counts."
           (emacs-srs-trainer--render-no-cards
            review-buffer
            "No cards are due. Use M-x emacs-srs-trainer-review-all to drill anyway."
-           (emacs-srs-trainer-queue-counts topic nil state)
-           (emacs-srs-trainer-due-counts topic nil state))
+           (emacs-srs-trainer-queue-counts topic nil state nil deck-name)
+           (emacs-srs-trainer-due-counts topic nil state deck-name)
+           deck-name)
           (unless noninteractive (pop-to-buffer review-buffer))
           (list :reviewed 0 :correct 0 :quit nil))
       (unless noninteractive (pop-to-buffer review-buffer))
@@ -450,9 +456,9 @@ used only for display counts."
         (let* ((card (car cards))
                (now (emacs-srs-trainer-scheduler-now))
                (state-counts (emacs-srs-trainer-queue-counts
-                              topic now state))
+                              topic now state nil deck-name))
                (due-counts (emacs-srs-trainer-due-counts
-                            topic now state))
+                            topic now state deck-name))
                (remaining (if refresh-function
                               (or (plist-get due-counts :total)
                                   (length cards))
@@ -510,21 +516,51 @@ used only for display counts."
   (emacs-srs-trainer--review-cards (emacs-srs-trainer-due-cards t)))
 
 ;;;###autoload
-(defun emacs-srs-trainer-review-topic (topic &optional all)
-  "Review due cards for TOPIC.
+(defun emacs-srs-trainer-review-deck (deck &optional all)
+  "Review due cards from DECK.
 
-With prefix argument ALL, review all cards in TOPIC regardless of
-due date."
+With prefix argument ALL, review every card in DECK regardless of due
+date."
   (interactive
-   (list (completing-read "Topic: " (emacs-srs-trainer-topics) nil t)
+   (list (completing-read "Deck: "
+                          (emacs-srs-trainer-deck-names)
+                          nil t nil nil emacs-srs-trainer-default-deck)
          current-prefix-arg))
   (emacs-srs-trainer--review-cards
-   (emacs-srs-trainer-due-cards all topic)
+   (emacs-srs-trainer-due-cards all nil nil nil deck)
    nil
    (unless all
      (lambda (state now)
-       (emacs-srs-trainer-due-cards nil topic now state)))
-   topic))
+       (emacs-srs-trainer-due-cards nil nil now state deck)))
+   nil
+   deck))
+
+;;;###autoload
+(defun emacs-srs-trainer-review-topic (topic &optional all deck)
+  "Review due cards for TOPIC in DECK.
+
+With prefix argument ALL, review all cards in TOPIC regardless of
+due date.  DECK defaults to `emacs-srs-trainer-default-deck' when this
+function is called from Lisp."
+  (interactive
+   (let* ((deck-name (completing-read "Deck: "
+                                      (emacs-srs-trainer-deck-names)
+                                      nil t nil nil
+                                      emacs-srs-trainer-default-deck))
+          (topics (emacs-srs-trainer-topics
+                   (emacs-srs-trainer-deck-by-name deck-name))))
+     (list (completing-read "Topic: " topics nil t)
+           current-prefix-arg
+           deck-name)))
+  (let ((deck-name (or deck emacs-srs-trainer-default-deck)))
+    (emacs-srs-trainer--review-cards
+     (emacs-srs-trainer-due-cards all topic nil nil deck-name)
+     nil
+     (unless all
+       (lambda (state now)
+         (emacs-srs-trainer-due-cards nil topic now state deck-name)))
+     topic
+     deck-name)))
 
 ;;;###autoload
 (defun emacs-srs-trainer-stats ()
@@ -589,12 +625,14 @@ Interactively, ask for confirmation unless FORCE is non-nil."
 (defun emacs-srs-trainer-doctor-report ()
   "Return a diagnostic report string."
   (let* ((cards (emacs-srs-trainer-deck-by-name emacs-srs-trainer-default-deck))
+         (all-cards (emacs-srs-trainer-all-cards))
          (state (emacs-srs-trainer-storage-load))
          (now (emacs-srs-trainer-scheduler-now))
          (due (emacs-srs-trainer-due-cards nil nil now state))
          (state-counts (emacs-srs-trainer-queue-counts nil now state))
          (due-counts (emacs-srs-trainer-due-counts nil now state))
          (tutorial-summary (emacs-srs-trainer-tutorial-extraction-summary))
+         (info-summary (emacs-srs-trainer-info-extraction-summary))
          (validation (emacs-srs-trainer-validate-deck-data))
          (storage-health (emacs-srs-trainer-storage-health))
          (decks (emacs-srs-trainer-load-decks)))
@@ -602,9 +640,11 @@ Interactively, ask for confirmation unless FORCE is non-nil."
      (format "emacs-srs-trainer doctor\n")
      (format "Version: %s\n" emacs-srs-trainer-version)
      (format "Storage location: %s\n" emacs-srs-trainer-storage-file)
+     (format "Default deck: %s\n" emacs-srs-trainer-default-deck)
      (format "Loaded decks: %d\n" (length decks))
-     (format "Cards: %d\n" (length cards))
-     (format "Due cards: %d\n" (length due))
+     (format "Cards: %d\n" (length all-cards))
+     (format "Default deck cards: %d\n" (length cards))
+     (format "Default deck due cards: %d\n" (length due))
      (format "State queues: %s\n"
              (emacs-srs-trainer-format-queue-counts state-counts))
      (format "Due now queues: %s\n"
@@ -614,6 +654,11 @@ Interactively, ask for confirmation unless FORCE is non-nil."
      (format "Tutorial extraction: %s (%d keys)\n"
              (if (plist-get tutorial-summary :ok) "ok" "failed")
              (or (plist-get tutorial-summary :count) 0))
+     (format "Info manual file: %s\n"
+             (or (plist-get info-summary :path) "not found"))
+     (format "Info extraction: %s (%d keys)\n"
+             (if (plist-get info-summary :ok) "ok" "failed")
+             (or (plist-get info-summary :count) 0))
      (format "Deck validation: %s\n"
              (if (plist-get validation :ok) "ok" "failed"))
      (format "Scheduler/storage health: %s (%s, %d stored card states)\n"
@@ -622,6 +667,7 @@ Interactively, ask for confirmation unless FORCE is non-nil."
              (or (plist-get storage-health :card-state-count) 0))
      (if (and (plist-get validation :ok)
               (plist-get tutorial-summary :ok)
+              (plist-get info-summary :ok)
               (plist-get storage-health :ok))
          "Overall: healthy\n"
        "Overall: needs attention\n")

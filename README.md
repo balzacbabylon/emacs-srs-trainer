@@ -1,12 +1,17 @@
 # emacs-srs-trainer
 
-`emacs-srs-trainer` is an Emacs-native spaced-repetition trainer for the
-keybindings taught by the Emacs Tutorial installed with your local Emacs.
-It asks you to answer by pressing real Emacs key sequences, not by typing
-textual answers.
+`emacs-srs-trainer` is an Emacs-native spaced-repetition trainer for
+Emacs documentation keybindings. It asks you to answer by pressing real
+Emacs key sequences, not by typing textual answers.
 
-The built-in deck is curated from the installed tutorial and validated
-against keybinding candidates extracted from that tutorial.
+Built-in decks:
+
+- `Emacs Tutorial`: curated from the installed Emacs Tutorial.
+- `Info: An Introduction`: curated from the installed Info introduction
+  manual, including its advanced Info commands chapter.
+
+Both decks are validated against keybinding candidates extracted from the
+local installed source documents.
 
 ## Why Emacs-Native
 
@@ -69,10 +74,16 @@ Start a due review session:
 M-x emacs-srs-trainer-review
 ```
 
-Review every card, ignoring due times:
+Review every card in the default deck, ignoring due times:
 
 ```text
 M-x emacs-srs-trainer-review-all
+```
+
+Review a specific deck, such as `Info: An Introduction`:
+
+```text
+M-x emacs-srs-trainer-review-deck
 ```
 
 Review one topic:
@@ -145,7 +156,7 @@ trainer displays those answers as `Backspace/Delete (DEL)` and accepts
 Emacs `<backspace>` events as well.
 
 Hardware-specific PageUp/PageDown alternatives from the tutorial are
-intentionally omitted from the built-in deck.
+intentionally omitted from the built-in decks.
 
 ## Scheduler
 
@@ -203,21 +214,23 @@ M-x emacs-srs-trainer-validate-deck
 Validation checks required fields, unique IDs, parseable key notation,
 duplicate question/answer pairs, deterministic generated prefix cards,
 source references, and coverage against keybinding candidates extracted
-from the local installed tutorial.
+from the local installed tutorial and Info introduction manual.
 
 Validation also screens for low-value cards: incidental prompt answers,
 hardware-specific PageUp/PageDown alternatives, ordinary self-insertion
 cards, `DEL` cards without a platform-friendly display answer, and
 questions that leak the answer.
 
-The extractor locates the installed tutorial through `data-directory`,
-trying paths such as:
+The tutorial extractor locates the installed tutorial through
+`data-directory`, trying paths such as:
 
 ```elisp
 (expand-file-name "tutorials/TUTORIAL" data-directory)
 ```
 
-If the tutorial is missing, validation and doctor report a clear failure.
+The Info extractor locates the installed `info.info` file through Emacs's
+Info directory list. If either source document is missing, validation and
+doctor report a clear failure.
 
 ## Adding Decks
 
@@ -278,6 +291,7 @@ emacs -Q --batch -L . -f batch-byte-compile \
   emacs-srs-trainer-scheduler.el \
   emacs-srs-trainer-storage.el \
   emacs-srs-trainer-tutorial.el \
+  emacs-srs-trainer-info.el \
   emacs-srs-trainer-validate.el \
   emacs-srs-trainer.el \
   emacs-srs-trainer-test.el
@@ -289,11 +303,11 @@ emacs -Q --batch -L . -f batch-byte-compile \
   subsequent textual command name.
 - Repeated command behavior such as repeated `C-l` is represented as the
   key command that cycles behavior, not as a macro of repeated keypresses.
-- Prompt-only answers and hardware-specific PageUp/PageDown alternatives
-  from the tutorial are intentionally omitted.
-- The tutorial extractor is conservative. It finds obvious Emacs key
+- Prompt-only answers, mouse gestures, stand-alone Info reader keys, and
+  hardware-specific PageUp/PageDown alternatives are intentionally omitted.
+- The source extractors are conservative. They find obvious Emacs key
   notation and validation documents intentional ignores for standalone
-  prefix keys.
+  prefix keys or repeated command families.
 - Storage currently uses a Lisp data file rather than SQLite.
 
 ## License

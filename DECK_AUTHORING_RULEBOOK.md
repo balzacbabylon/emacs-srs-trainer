@@ -57,7 +57,8 @@ When deriving cards from tutorials or manuals:
 2. Read the surrounding prose to identify the command concept being taught.
 3. Curate a card only if the concept is a durable command, binding, or
    meaningful variation.
-4. Record source references such as `TUTORIAL:line-123` or a section label.
+4. Record source references such as `TUTORIAL:line-123`,
+   `TUTORIAL:Section name`, or `INFO:Node name`.
 5. Document ignored candidates when they are prefixes, prose placeholders,
    prompt answers, hardware-specific alternatives, or false positives.
 6. Generate combinations only for independent meaningful option groups. Do
@@ -71,11 +72,10 @@ Deck validation should reject:
 - duplicate IDs
 - duplicate question/answer pairs
 - unparsable key notation
-- uncovered tutorial key candidates that are not explicitly ignored
+- uncovered source key candidates that are not explicitly ignored
 - prompt-only cards
 - hardware-specific PageUp/PageDown cards
 - ordinary self-insert cards
 - `DEL` cards without a platform-friendly display answer
 - questions that leak the answer via key notation, modifier names, or physical
   key names
-

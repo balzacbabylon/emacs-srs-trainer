@@ -33,7 +33,21 @@
 (ert-deftest emacs-srs-trainer-test-deck-loading ()
   (should (assoc emacs-srs-trainer-tutorial-deck-name
                  (emacs-srs-trainer-load-decks)))
+  (should (assoc emacs-srs-trainer-info-deck-name
+                 (emacs-srs-trainer-load-decks)))
   (should (> (length (emacs-srs-trainer-all-cards)) 60)))
+
+(ert-deftest emacs-srs-trainer-test-info-deck-loading ()
+  (let ((cards (emacs-srs-trainer-deck-by-name
+                emacs-srs-trainer-info-deck-name)))
+    (should (> (length cards) 40))
+    (should (emacs-srs-trainer-test--card "info-search-text"))
+    (should (emacs-srs-trainer-test--card "info-quoted-insert"))
+    (should (emacs-srs-trainer-test--card "info-numbered-info-buffer"))
+    (should (cl-every
+             (lambda (card)
+               (string-prefix-p "INFO:" (plist-get card :source-ref)))
+             cards))))
 
 (ert-deftest emacs-srs-trainer-test-required-deck-fields ()
   (let ((result (emacs-srs-trainer-validate-deck-data)))
@@ -146,6 +160,36 @@
     (should-not (cl-some (lambda (error)
                            (string-match-p "clean-card" error))
                          errors))))
+
+(ert-deftest emacs-srs-trainer-test-single-letter-card-leakage-validation ()
+  (let* ((clean-card (list :id "clean-single-letter"
+                           :deck "Synthetic"
+                           :topic "Synthetic"
+                           :command 'Info-next
+                           :question "Go to the following node at the same level."
+                           :canonical-answer "n"
+                           :accepted-answers nil
+                           :tags '("info")
+                           :source-ref "INFO:test"))
+         (leaky-card (list :id "leaky-single-letter"
+                           :deck "Synthetic"
+                           :topic "Synthetic"
+                           :command 'Info-next
+                           :question "Press n key for the following node."
+                           :canonical-answer "n"
+                           :accepted-answers nil
+                           :tags '("info")
+                           :source-ref "INFO:test"))
+         (errors (plist-get (emacs-srs-trainer-validate-deck-data
+                             (list clean-card leaky-card))
+                            :errors)))
+    (should-not (cl-some (lambda (error)
+                           (string-match-p "clean-single-letter" error))
+                         errors))
+    (should (cl-some (lambda (error)
+                       (and (string-match-p "leaky-single-letter" error)
+                            (string-match-p "question leaks" error)))
+                     errors))))
 
 (ert-deftest emacs-srs-trainer-test-key-notation-parsing ()
   (dolist (key '("C-f" "M-f" "C-x C-f" "C-u 8 C-f" "C-M-v" "ESC ESC ESC"))
@@ -321,11 +365,35 @@
     (dolist (key '("C-f" "M-f" "C-x C-f" "C-u 8 C-f" "C-g"))
       (should (member key keys)))))
 
+(ert-deftest emacs-srs-trainer-test-info-keybinding-extraction ()
+  (unless (emacs-srs-trainer-info-file)
+    (ert-skip "Installed Info introduction manual is unavailable"))
+  (let ((keys (mapcar (lambda (candidate)
+                        (plist-get candidate :key))
+                      (emacs-srs-trainer-info-extract-keybindings))))
+    (dolist (key '("h" "?" "n" "SPC" "DEL" "m" "f" "l" "s" "i"
+                   "C-q" "C-q ?" "C-s" "C-r" "g" "g * RET" "M-n"
+                   "C-u m" "C-u 2 C-h i"))
+      (should (member key keys)))))
+
 (ert-deftest emacs-srs-trainer-test-tutorial-coverage-validation ()
   (unless (emacs-srs-trainer-tutorial-file)
     (ert-skip "Installed tutorial file is unavailable"))
   (let ((result (emacs-srs-trainer-validate-deck-data)))
     (should (plist-get result :ok))))
+
+(ert-deftest emacs-srs-trainer-test-info-deck-selection ()
+  (let ((cards (emacs-srs-trainer-due-cards
+                t nil nil nil emacs-srs-trainer-info-deck-name)))
+    (should (= (length cards)
+               (length (emacs-srs-trainer-deck-by-name
+                        emacs-srs-trainer-info-deck-name))))
+    (should (cl-find "info-search-text" cards
+                     :key #'emacs-srs-trainer-card-id
+                     :test #'string=))
+    (should-not (cl-find "tutorial-move-forward-char" cards
+                         :key #'emacs-srs-trainer-card-id
+                         :test #'string=))))
 
 (ert-deftest emacs-srs-trainer-test-prefix-card-generation ()
   (let ((a (emacs-srs-trainer-deck-generate-prefix-cards))
@@ -359,6 +427,27 @@
             (should (string-match-p "Card type: New" (buffer-string)))
             (should (string-match-p "Moved to: Learning" (buffer-string)))))
       (ignore-errors (kill-buffer " *emacs-srs-trainer-test*"))
+      (ignore-errors (delete-directory dir t)))))
+
+(ert-deftest emacs-srs-trainer-test-info-review-loop-smoke ()
+  (let* ((dir (make-temp-file "emacs-srs-trainer-info-review-" t))
+         (file (expand-file-name "state.el" dir))
+         (card (emacs-srs-trainer-test--card "info-search-text"))
+         (emacs-srs-trainer-storage-file file)
+         (emacs-srs-trainer-read-answer-function (lambda () "s"))
+         (emacs-srs-trainer-read-continuation-function (lambda () 'quit)))
+    (unwind-protect
+        (let ((result (emacs-srs-trainer--review-cards
+                       (list card)
+                       (get-buffer-create " *emacs-srs-trainer-info-test*")
+                       nil nil
+                       emacs-srs-trainer-info-deck-name)))
+          (should (= (plist-get result :reviewed) 1))
+          (should (= (plist-get result :correct) 1))
+          (with-current-buffer " *emacs-srs-trainer-info-test*"
+            (should (string-match-p "Deck: Info: An Introduction"
+                                    (buffer-string)))))
+      (ignore-errors (kill-buffer " *emacs-srs-trainer-info-test*"))
       (ignore-errors (delete-directory dir t)))))
 
 (ert-deftest emacs-srs-trainer-test-review-loop-refreshes-learning-card ()

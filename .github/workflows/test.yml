@@ -20,6 +20,7 @@ jobs:
           emacs-srs-trainer-scheduler.el
           emacs-srs-trainer-storage.el
           emacs-srs-trainer-tutorial.el
+          emacs-srs-trainer-info.el
           emacs-srs-trainer-validate.el
           emacs-srs-trainer.el
           emacs-srs-trainer-test.el
