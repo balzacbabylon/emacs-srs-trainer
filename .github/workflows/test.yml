@@ -1,0 +1,31 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Emacs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y emacs-nox
+      - name: Byte compile
+        run: >
+          emacs -Q --batch -L . -f batch-byte-compile
+          emacs-srs-trainer-deck.el
+          emacs-srs-trainer-scheduler.el
+          emacs-srs-trainer-storage.el
+          emacs-srs-trainer-tutorial.el
+          emacs-srs-trainer-validate.el
+          emacs-srs-trainer.el
+          emacs-srs-trainer-test.el
+      - name: Run ERT tests
+        run: emacs -Q --batch -L . -l emacs-srs-trainer-test.el -f ert-run-tests-batch-and-exit
+      - name: Validate deck
+        run: emacs -Q --batch -L . -l emacs-srs-trainer.el -f emacs-srs-trainer-validate-deck
+      - name: Doctor
+        run: emacs -Q --batch -L . -l emacs-srs-trainer.el -f emacs-srs-trainer-doctor

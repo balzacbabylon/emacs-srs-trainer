@@ -1,0 +1,6 @@
+*.elc
+*.eln
+eln-cache/
+.emacs-srs-trainer-state-*
+emacs-srs-trainer-state.el
+
