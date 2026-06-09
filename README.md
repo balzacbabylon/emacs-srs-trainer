@@ -74,11 +74,14 @@ Start a due review session:
 M-x emacs-srs-trainer-review
 ```
 
-Review every card in the default deck, ignoring due times:
+Practice every card in the default deck, ignoring due times:
 
 ```text
 M-x emacs-srs-trainer-review-all
 ```
+
+`review-all` is a drill mode. It grades your answers, but it does not
+change stored SRS progress or due times.
 
 Review a specific deck, such as `Info: An Introduction`:
 
@@ -96,11 +99,21 @@ Other useful commands:
 
 ```text
 M-x emacs-srs-trainer-stats
+M-x emacs-srs-trainer-set-review-card-limit
 M-x emacs-srs-trainer-reset
 M-x emacs-srs-trainer-validate-deck
 M-x emacs-srs-trainer-doctor
 M-x emacs-srs-trainer-open-deck
 ```
+
+Limit the number of due cards in each normal review session:
+
+```text
+M-x emacs-srs-trainer-set-review-card-limit
+```
+
+Enter `0` for no limit. You can also set a one-time limit with a numeric
+prefix, for example `C-u 10 M-x emacs-srs-trainer-review`.
 
 The review buffer is named `*Emacs SRS Trainer*`. A card looks like:
 
@@ -124,6 +137,16 @@ RET or SPC: next    q: quit    ?: help
 
 Those trainer controls are only active after an answer has already been
 captured.
+
+When the session ends normally, the buffer shows a completion message. If
+all currently due cards were reviewed, it says:
+
+```text
+You have reviewed all due cards.
+```
+
+If you used a session limit and more cards remain due, it reports how many
+are still due.
 
 ## Raw Key Capture
 
@@ -177,6 +200,10 @@ The result screen shows the new state and next due time. While reviewing
 due cards, the due queue is refreshed after each answer, so a wrong card
 can reappear once that 60-second learning delay has elapsed.
 
+`emacs-srs-trainer-review` updates and saves scheduler state after each
+answer. `emacs-srs-trainer-review-all` is practice-only and leaves stored
+state unchanged.
+
 Cards are shown by queue bucket: `Learning`, then `To Review`, then `New`.
 Within each bucket, card order is shuffled when the due list is built, so
 cards that come due together do not reappear in deck order. Customize
@@ -202,6 +229,10 @@ Reset progress:
 ```text
 M-x emacs-srs-trainer-reset
 ```
+
+The review card limit is a separate Customize setting named
+`emacs-srs-trainer-review-card-limit`; it controls session size, not card
+due timestamps.
 
 ## Validation
 

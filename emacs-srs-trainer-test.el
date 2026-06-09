@@ -30,6 +30,14 @@
         :tags nil
         :source-ref "TUTORIAL:test"))
 
+(defun emacs-srs-trainer-test--synthetic-deck-card
+    (id deck answer &optional accepted)
+  "Return a synthetic card with ID in DECK for review-loop tests."
+  (let ((card (emacs-srs-trainer-test--synthetic-card answer accepted)))
+    (setq card (plist-put card :id id))
+    (setq card (plist-put card :deck deck))
+    card))
+
 (ert-deftest emacs-srs-trainer-test-deck-loading ()
   (should (assoc emacs-srs-trainer-tutorial-deck-name
                  (emacs-srs-trainer-load-decks)))
@@ -395,6 +403,11 @@
                          :key #'emacs-srs-trainer-card-id
                          :test #'string=))))
 
+(ert-deftest emacs-srs-trainer-test-due-card-limit ()
+  (let ((cards (emacs-srs-trainer-due-cards
+                t nil nil nil emacs-srs-trainer-info-deck-name 3)))
+    (should (= (length cards) 3))))
+
 (ert-deftest emacs-srs-trainer-test-prefix-card-generation ()
   (let ((a (emacs-srs-trainer-deck-generate-prefix-cards))
         (b (emacs-srs-trainer-deck-generate-prefix-cards)))
@@ -448,6 +461,96 @@
             (should (string-match-p "Deck: Info: An Introduction"
                                     (buffer-string)))))
       (ignore-errors (kill-buffer " *emacs-srs-trainer-info-test*"))
+      (ignore-errors (delete-directory dir t)))))
+
+(ert-deftest emacs-srs-trainer-test-review-loop-renders-completion ()
+  (let* ((deck-name "Synthetic Complete")
+         (card (emacs-srs-trainer-test--synthetic-deck-card
+                "synthetic-complete" deck-name "C-f"))
+         (dir (make-temp-file "emacs-srs-trainer-complete-" t))
+         (file (expand-file-name "state.el" dir))
+         (emacs-srs-trainer-decks nil)
+         (emacs-srs-trainer-default-deck deck-name)
+         (emacs-srs-trainer-shuffle-cards-within-queue nil)
+         (emacs-srs-trainer-storage-file file)
+         (emacs-srs-trainer-read-answer-function (lambda () "C-f"))
+         (emacs-srs-trainer-read-continuation-function (lambda () 'next)))
+    (unwind-protect
+        (progn
+          (emacs-srs-trainer-register-deck deck-name (list card))
+          (let ((result (emacs-srs-trainer--review-cards
+                         (list card)
+                         (get-buffer-create " *emacs-srs-trainer-complete-test*")
+                         nil nil deck-name)))
+            (should (= (plist-get result :reviewed) 1))
+            (should (= (plist-get result :correct) 1))
+            (with-current-buffer " *emacs-srs-trainer-complete-test*"
+              (should (string-match-p "You have reviewed all due cards"
+                                      (buffer-string))))))
+      (ignore-errors (kill-buffer " *emacs-srs-trainer-complete-test*"))
+      (ignore-errors (delete-directory dir t)))))
+
+(ert-deftest emacs-srs-trainer-test-review-loop-session-limit-completion ()
+  (let* ((deck-name "Synthetic Limited")
+         (first-card (emacs-srs-trainer-test--synthetic-deck-card
+                      "synthetic-limited-1" deck-name "C-f"))
+         (second-card (emacs-srs-trainer-test--synthetic-deck-card
+                       "synthetic-limited-2" deck-name "C-b"))
+         (dir (make-temp-file "emacs-srs-trainer-limited-" t))
+         (file (expand-file-name "state.el" dir))
+         (emacs-srs-trainer-decks nil)
+         (emacs-srs-trainer-default-deck deck-name)
+         (emacs-srs-trainer-shuffle-cards-within-queue nil)
+         (emacs-srs-trainer-storage-file file)
+         (emacs-srs-trainer-read-answer-function (lambda () "C-f"))
+         (emacs-srs-trainer-read-continuation-function (lambda () 'next)))
+    (unwind-protect
+        (progn
+          (emacs-srs-trainer-register-deck deck-name
+                                           (list first-card second-card))
+          (let ((result (emacs-srs-trainer--review-cards
+                         (emacs-srs-trainer-due-cards nil nil nil nil
+                                                      deck-name 1)
+                         (get-buffer-create " *emacs-srs-trainer-limited-test*")
+                         nil nil deck-name nil 1)))
+            (should (= (plist-get result :reviewed) 1))
+            (should (= (plist-get result :correct) 1))
+            (with-current-buffer " *emacs-srs-trainer-limited-test*"
+              (should (string-match-p "Session limit: 1"
+                                      (buffer-string)))
+              (should (string-match-p "Session complete. 1 due card remains"
+                                      (buffer-string))))))
+      (ignore-errors (kill-buffer " *emacs-srs-trainer-limited-test*"))
+      (ignore-errors (delete-directory dir t)))))
+
+(ert-deftest emacs-srs-trainer-test-review-all-practice-does-not-update-storage ()
+  (let* ((deck-name "Synthetic Practice")
+         (card (emacs-srs-trainer-test--synthetic-deck-card
+                "synthetic-practice" deck-name "C-f"))
+         (dir (make-temp-file "emacs-srs-trainer-practice-" t))
+         (file (expand-file-name "state.el" dir))
+         (initial-state (emacs-srs-trainer-storage-put-card-state
+                         "synthetic-practice"
+                         (emacs-srs-trainer-scheduler-new-state 1000.0)
+                         (emacs-srs-trainer-storage-empty-state)))
+         (emacs-srs-trainer-decks nil)
+         (emacs-srs-trainer-default-deck deck-name)
+         (emacs-srs-trainer-storage-file file)
+         (emacs-srs-trainer-read-answer-function (lambda () "C-b"))
+         (emacs-srs-trainer-read-continuation-function (lambda () 'quit)))
+    (unwind-protect
+        (progn
+          (emacs-srs-trainer-register-deck deck-name (list card))
+          (emacs-srs-trainer-storage-save initial-state file)
+          (let ((result (emacs-srs-trainer-review-all 1)))
+            (should (= (plist-get result :reviewed) 1))
+            (should (plist-get result :practice))
+            (should (equal (emacs-srs-trainer-storage-load file)
+                           initial-state))
+            (with-current-buffer emacs-srs-trainer-review-buffer-name
+              (should (string-match-p "Practice mode: progress unchanged"
+                                      (buffer-string))))))
+      (ignore-errors (kill-buffer emacs-srs-trainer-review-buffer-name))
       (ignore-errors (delete-directory dir t)))))
 
 (ert-deftest emacs-srs-trainer-test-review-loop-refreshes-learning-card ()
@@ -537,6 +640,57 @@
          (append (listify-key-sequence (kbd "C-u 8 C-f")) nil)))
     (should (string= (emacs-srs-trainer-read-answer-key-sequence)
                      "C-u 8 C-f"))))
+
+(ert-deftest emacs-srs-trainer-test-continuation-debounce-discards-repeat ()
+  (let ((emacs-srs-trainer-continuation-debounce-seconds 0.01)
+        (unread-command-events
+         (append (listify-key-sequence (kbd "SPC"))
+                 (listify-key-sequence (kbd "C-b"))
+                 nil)))
+    (emacs-srs-trainer--debounce-continuation-event ?\s)
+    (should (equal unread-command-events
+                   (append (listify-key-sequence (kbd "C-b")) nil)))))
+
+(ert-deftest emacs-srs-trainer-test-continuation-debounce-preserves-other-event ()
+  (let ((emacs-srs-trainer-continuation-debounce-seconds 0.01)
+        (unread-command-events
+         (append (listify-key-sequence (kbd "C-b")) nil)))
+    (emacs-srs-trainer--debounce-continuation-event ?\s)
+    (should (equal unread-command-events
+                   (append (listify-key-sequence (kbd "C-b")) nil)))))
+
+(ert-deftest emacs-srs-trainer-test-review-loop-debounces-space-continuation ()
+  (let* ((dir (make-temp-file "emacs-srs-trainer-debounce-" t))
+         (file (expand-file-name "state.el" dir))
+         (first-card (emacs-srs-trainer-test--card "tutorial-move-forward-char"))
+         (second-card (emacs-srs-trainer-test--card "tutorial-move-backward-char"))
+         (continuations 0)
+         (emacs-srs-trainer-storage-file file)
+         (emacs-srs-trainer-continuation-debounce-seconds 0.01)
+         (emacs-srs-trainer-read-answer-function
+          #'emacs-srs-trainer-read-answer-key-sequence)
+         (emacs-srs-trainer-read-continuation-function
+          (lambda ()
+            (setq continuations (1+ continuations))
+            (if (= continuations 1)
+                (progn
+                  (setq emacs-srs-trainer--last-continuation-event ?\s)
+                  (setq unread-command-events
+                        (append (listify-key-sequence (kbd "SPC"))
+                                (listify-key-sequence (kbd "C-b"))
+                                nil))
+                  'next)
+              'quit)))
+         (unread-command-events
+          (append (listify-key-sequence (kbd "C-f")) nil)))
+    (unwind-protect
+        (let ((result (emacs-srs-trainer--review-cards
+                       (list first-card second-card)
+                       (get-buffer-create " *emacs-srs-trainer-debounce-test*"))))
+          (should (= (plist-get result :reviewed) 2))
+          (should (= (plist-get result :correct) 2)))
+      (ignore-errors (kill-buffer " *emacs-srs-trainer-debounce-test*"))
+      (ignore-errors (delete-directory dir t)))))
 
 (ert-deftest emacs-srs-trainer-test-control-g-answer-capture ()
   (let ((unread-command-events
