@@ -24,6 +24,7 @@
 (require 'emacs-srs-trainer-storage)
 (require 'emacs-srs-trainer-tutorial)
 (require 'emacs-srs-trainer-info)
+(require 'emacs-srs-trainer-org)
 (require 'emacs-srs-trainer-validate)
 
 (defcustom emacs-srs-trainer-review-buffer-name "*Emacs SRS Trainer*"
@@ -869,6 +870,7 @@ Interactively, ask for confirmation unless FORCE is non-nil."
          (due-counts (emacs-srs-trainer-due-counts nil now state))
          (tutorial-summary (emacs-srs-trainer-tutorial-extraction-summary))
          (info-summary (emacs-srs-trainer-info-extraction-summary))
+         (org-summary (emacs-srs-trainer-org-extraction-summary))
          (validation (emacs-srs-trainer-validate-deck-data))
          (storage-health (emacs-srs-trainer-storage-health))
          (decks (emacs-srs-trainer-load-decks)))
@@ -898,6 +900,11 @@ Interactively, ask for confirmation unless FORCE is non-nil."
      (format "Info extraction: %s (%d keys)\n"
              (if (plist-get info-summary :ok) "ok" "failed")
              (or (plist-get info-summary :count) 0))
+     (format "Org manual file: %s\n"
+             (or (plist-get org-summary :path) "not found"))
+     (format "Org extraction: %s (%d keys)\n"
+             (if (plist-get org-summary :ok) "ok" "failed")
+             (or (plist-get org-summary :count) 0))
      (format "Deck validation: %s\n"
              (if (plist-get validation :ok) "ok" "failed"))
      (format "Scheduler/storage health: %s (%s, %d stored card states)\n"
@@ -907,6 +914,7 @@ Interactively, ask for confirmation unless FORCE is non-nil."
      (if (and (plist-get validation :ok)
               (plist-get tutorial-summary :ok)
               (plist-get info-summary :ok)
+              (plist-get org-summary :ok)
               (plist-get storage-health :ok))
          "Overall: healthy\n"
        "Overall: needs attention\n")

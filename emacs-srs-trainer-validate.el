@@ -14,6 +14,7 @@
 (require 'emacs-srs-trainer-deck)
 (require 'emacs-srs-trainer-tutorial)
 (require 'emacs-srs-trainer-info)
+(require 'emacs-srs-trainer-org)
 
 (defun emacs-srs-trainer-validate--ok-p (result)
   "Return non-nil when validation RESULT has no errors."
@@ -26,7 +27,7 @@
 (defun emacs-srs-trainer-validate--source-ref-p (source-ref)
   "Return non-nil when SOURCE-REF is well formed."
   (and (stringp source-ref)
-       (string-match-p (rx bos (or "TUTORIAL:" "INFO:") (+ not-newline) eos)
+       (string-match-p (rx bos (or "TUTORIAL:" "INFO:" "ORG:") (+ not-newline) eos)
                        source-ref)))
 
 (defun emacs-srs-trainer-validate--answer-parses-p (answer)
@@ -283,6 +284,9 @@ When CARDS is nil, validate all loaded cards."
            (info-summary (emacs-srs-trainer-info-extraction-summary))
            (info-candidates (when (plist-get info-summary :ok)
                               (plist-get info-summary :candidates)))
+           (org-summary (emacs-srs-trainer-org-extraction-summary))
+           (org-candidates (when (plist-get org-summary :ok)
+                             (plist-get org-summary :candidates)))
            (answer-set (emacs-srs-trainer-validate--answer-set deck-cards)))
       (if (not (plist-get extract-summary :ok))
           (setq errors (emacs-srs-trainer-validate--add-error
@@ -313,13 +317,29 @@ When CARDS is nil, validate all loaded cards."
               (plist-put info-summary
                          :ignored-count
                          (length emacs-srs-trainer-info-ignored-keybindings))))
+      (if (not (plist-get org-summary :ok))
+          (push (format "Org manual unavailable; skipping Org coverage extraction: %s"
+                        (or (plist-get org-summary :message) "unknown error"))
+                warnings)
+        (dolist (coverage-error
+                 (emacs-srs-trainer-validate--coverage-errors
+                  "Org"
+                  org-candidates
+                  emacs-srs-trainer-org-ignored-keybindings
+                  answer-set))
+          (setq errors (cons coverage-error errors)))
+        (setq org-summary
+              (plist-put org-summary
+                         :ignored-count
+                         (length emacs-srs-trainer-org-ignored-keybindings))))
       (list :ok (null errors)
             :errors (nreverse errors)
             :warnings (nreverse warnings)
             :card-count (length deck-cards)
             :extracted-count (length tutorial-candidates)
             :ignored-count (length emacs-srs-trainer-tutorial-ignored-keybindings)
-            :info-extraction info-summary))))
+            :info-extraction info-summary
+            :org-extraction org-summary))))
 
 (defun emacs-srs-trainer-validate-format-result (result)
   "Format validation RESULT for display."
@@ -335,6 +355,12 @@ When CARDS is nil, validate all loaded cards."
               (or (plist-get info-result :count) 0))
       (format "Explicitly ignored extracted Info keys: %d\n"
               (or (plist-get info-result :ignored-count) 0))))
+   (when-let* ((org-result (plist-get result :org-extraction)))
+     (concat
+      (format "Extracted Org keys: %d\n"
+              (or (plist-get org-result :count) 0))
+      (format "Explicitly ignored extracted Org keys: %d\n"
+              (or (plist-get org-result :ignored-count) 0))))
    (when (plist-get result :warnings)
      (concat "\nWarnings:\n"
              (mapconcat (lambda (warning) (concat "- " warning))

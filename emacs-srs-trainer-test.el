@@ -43,7 +43,9 @@
                  (emacs-srs-trainer-load-decks)))
   (should (assoc emacs-srs-trainer-info-deck-name
                  (emacs-srs-trainer-load-decks)))
-  (should (> (length (emacs-srs-trainer-all-cards)) 60)))
+  (should (assoc emacs-srs-trainer-org-deck-name
+                 (emacs-srs-trainer-load-decks)))
+  (should (> (length (emacs-srs-trainer-all-cards)) 200)))
 
 (ert-deftest emacs-srs-trainer-test-info-deck-loading ()
   (let ((cards (emacs-srs-trainer-deck-by-name
@@ -55,6 +57,19 @@
     (should (cl-every
              (lambda (card)
                (string-prefix-p "INFO:" (plist-get card :source-ref)))
+             cards))))
+
+(ert-deftest emacs-srs-trainer-test-org-deck-loading ()
+  (let ((cards (emacs-srs-trainer-deck-by-name
+                emacs-srs-trainer-org-deck-name)))
+    (should (> (length cards) 150))
+    (should (emacs-srs-trainer-test--card "org-cycle-visibility"))
+    (should (emacs-srs-trainer-test--card "org-agenda"))
+    (should (emacs-srs-trainer-test--card "org-export-dispatch"))
+    (should (emacs-srs-trainer-test--card "org-babel-tangle"))
+    (should (cl-every
+             (lambda (card)
+               (string-prefix-p "ORG:" (plist-get card :source-ref)))
              cards))))
 
 (ert-deftest emacs-srs-trainer-test-required-deck-fields ()
@@ -384,6 +399,17 @@
                    "C-u m" "C-u 2 C-h i"))
       (should (member key keys)))))
 
+(ert-deftest emacs-srs-trainer-test-org-keybinding-extraction ()
+  (unless (emacs-srs-trainer-org-file)
+    (ert-skip "Installed Org manual is unavailable"))
+  (let ((keys (mapcar (lambda (candidate)
+                        (plist-get candidate :key))
+                      (emacs-srs-trainer-org-extract-keybindings))))
+    (dolist (key '("TAB" "C-c C-t" "C-c C-e" "C-c C-e h h"
+                   "C-c C-v t" "C-c C-x TAB" "C-c C-a"
+                   "C-c C-w"))
+      (should (member key keys)))))
+
 (ert-deftest emacs-srs-trainer-test-tutorial-coverage-validation ()
   (unless (emacs-srs-trainer-tutorial-file)
     (ert-skip "Installed tutorial file is unavailable"))
@@ -397,6 +423,19 @@
                (length (emacs-srs-trainer-deck-by-name
                         emacs-srs-trainer-info-deck-name))))
     (should (cl-find "info-search-text" cards
+                     :key #'emacs-srs-trainer-card-id
+                     :test #'string=))
+    (should-not (cl-find "tutorial-move-forward-char" cards
+                         :key #'emacs-srs-trainer-card-id
+                         :test #'string=))))
+
+(ert-deftest emacs-srs-trainer-test-org-deck-selection ()
+  (let ((cards (emacs-srs-trainer-due-cards
+                t nil nil nil emacs-srs-trainer-org-deck-name)))
+    (should (= (length cards)
+               (length (emacs-srs-trainer-deck-by-name
+                        emacs-srs-trainer-org-deck-name))))
+    (should (cl-find "org-export-dispatch" cards
                      :key #'emacs-srs-trainer-card-id
                      :test #'string=))
     (should-not (cl-find "tutorial-move-forward-char" cards

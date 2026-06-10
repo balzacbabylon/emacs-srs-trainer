@@ -9,9 +9,13 @@ Built-in decks:
 - `Emacs Tutorial`: curated from the installed Emacs Tutorial.
 - `Info: An Introduction`: curated from the installed Info introduction
   manual, including its advanced Info commands chapter.
+- `Org Mode Manual`: curated from the installed Org manual, covering
+  important commands across the manual including outline editing, tables,
+  TODOs, tags, properties, timestamps, agenda, export, publishing, and
+  source blocks.
 
-Both decks are validated against keybinding candidates extracted from the
-local installed source documents.
+Built-in decks are validated against keybinding candidates extracted from
+the local installed source documents.
 
 ## Why Emacs-Native
 
@@ -83,7 +87,8 @@ M-x emacs-srs-trainer-review-all
 `review-all` is a drill mode. It grades your answers, but it does not
 change stored SRS progress or due times.
 
-Review a specific deck, such as `Info: An Introduction`:
+Review a specific deck, such as `Info: An Introduction` or
+`Org Mode Manual`:
 
 ```text
 M-x emacs-srs-trainer-review-deck
@@ -245,7 +250,8 @@ M-x emacs-srs-trainer-validate-deck
 Validation checks required fields, unique IDs, parseable key notation,
 duplicate question/answer pairs, deterministic generated prefix cards,
 source references, and coverage against keybinding candidates extracted
-from the local installed tutorial and Info introduction manual.
+from the local installed tutorial, Info introduction manual, and Org
+manual.
 
 Validation also screens for low-value cards: incidental prompt answers,
 hardware-specific PageUp/PageDown alternatives, ordinary self-insertion
@@ -264,6 +270,11 @@ Info directory list. If the Emacs Tutorial is missing, validation reports
 a clear failure. If `info.info` is unavailable, validation still checks
 the curated Info cards but reports a warning that source coverage was
 skipped for that manual.
+
+The Org extractor locates the installed `org.info` file through Emacs's
+Info directory list. If it is unavailable, validation still checks the
+curated Org cards but reports a warning that source coverage was skipped
+for that manual.
 
 ## Adding Decks
 
@@ -325,6 +336,7 @@ emacs -Q --batch -L . -f batch-byte-compile \
   emacs-srs-trainer-storage.el \
   emacs-srs-trainer-tutorial.el \
   emacs-srs-trainer-info.el \
+  emacs-srs-trainer-org.el \
   emacs-srs-trainer-validate.el \
   emacs-srs-trainer.el \
   emacs-srs-trainer-test.el
