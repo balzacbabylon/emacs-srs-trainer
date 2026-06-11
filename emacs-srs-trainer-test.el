@@ -223,7 +223,17 @@
   (should (string= (emacs-srs-trainer-normalize-key (kbd "C-f")) "C-f"))
   (should (string= (emacs-srs-trainer-normalize-key "<ESC> f") "M-f"))
   (should (string= (emacs-srs-trainer-normalize-key "C-<SPC>") "C-SPC"))
-  (should (string= (emacs-srs-trainer-normalize-key "<Return>") "RET")))
+  (should (string= (emacs-srs-trainer-normalize-key "<Return>") "RET"))
+  (should (string= (emacs-srs-trainer-normalize-key "<RIGHT>") "<right>"))
+  (should (string= (emacs-srs-trainer-normalize-key "<right>") "<right>"))
+  (should (string= (emacs-srs-trainer-normalize-key "M-<RIGHT>") "M-<right>"))
+  (should (string= (emacs-srs-trainer-normalize-key "M-<right>") "M-<right>")))
+
+(ert-deftest emacs-srs-trainer-test-org-arrow-key-grading ()
+  (let* ((card (emacs-srs-trainer-test--card "org-do-demote"))
+         (grade (emacs-srs-trainer-grade-answer card "M-<right>")))
+    (should (plist-get grade :correct))
+    (should (string= (plist-get grade :answer) "M-<right>"))))
 
 (ert-deftest emacs-srs-trainer-test-correct-answer-grading ()
   (let* ((card (emacs-srs-trainer-test--card "tutorial-move-forward-char"))

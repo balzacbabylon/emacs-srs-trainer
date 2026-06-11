@@ -52,6 +52,19 @@
   :type '(alist :key-type string :value-type string)
   :group 'emacs-srs-trainer)
 
+(defun emacs-srs-trainer-deck--canonicalize-angle-token (token)
+  "Canonicalize angle-bracket key names inside TOKEN.
+
+`key-description' may report special keys with lowercase names during
+capture, while manuals often spell them in uppercase.  Keep modifiers
+unchanged and normalize the key name inside angle brackets."
+  (if (string-match (rx bos (group (*? anything)) "<" (group (+ (not ">"))) ">" eos)
+                    token)
+      (let ((prefix (match-string 1 token))
+            (name (match-string 2 token)))
+        (concat prefix "<" (downcase name) ">"))
+    token))
+
 (defun emacs-srs-trainer-deck--canonicalize-token (token)
   "Canonicalize one key-description TOKEN for comparison."
   (cond
@@ -59,6 +72,8 @@
    ((member token '("<tab>" "<Tab>")) "TAB")
    ((member token '("<escape>" "<Escape>")) "ESC")
    ((member token '("<BACKSPACE>" "<Backspace>")) "<backspace>")
+   ((string-match-p (rx "<" (+ (not ">")) ">" eos) token)
+    (emacs-srs-trainer-deck--canonicalize-angle-token token))
    (t token)))
 
 (defun emacs-srs-trainer-canonicalize-key-description (description)
