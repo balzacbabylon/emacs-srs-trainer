@@ -143,6 +143,11 @@ RET or SPC: next    q: quit    ?: help
 Those trainer controls are only active after an answer has already been
 captured.
 
+Pressing `q` after a card has been graded leaves study mode and shows a
+welcome/dashboard buffer with recently reviewed cards and available decks.
+Use `TAB` to move between deck buttons and `RET` to open the selected deck,
+or use ordinary Emacs commands such as `C-x 0` to close the window.
+
 When the session ends normally, the buffer shows a completion message. If
 all currently due cards were reviewed, it says:
 
@@ -195,11 +200,21 @@ Cards are grouped into Anki-style queues:
   after a wrong answer
 - `To Review`: graduated cards due for interval review
 
-New cards are due immediately. A correct first review schedules the card
-for 1 day later but keeps it in `Learning`; a second correct review
-graduates it to `To Review` and schedules it for 3 days later. Later
-correct reviews grow by the card's ease factor. An incorrect answer resets
-the card to `Learning` and schedules it again after 60 seconds.
+New cards are due immediately. The built-in scheduler uses learning steps
+similar to Anki's learning-step model while keeping this package's binary
+review choices: `Correct` and `Redo`. The default steps are `1 minute`,
+`10 minutes`, and `1 day`: an incorrect answer (`Redo`) returns the card
+to the first step and makes it due in 1 minute; a correct answer advances
+to the next step; after the final learning step is answered correctly, the
+card graduates to `To Review` with an initial review interval of 3 days.
+Later correct reviews grow by the card's ease factor.
+
+Customize `emacs-srs-trainer-scheduler-learning-steps-seconds` to change
+the learning ladder. The default value is:
+
+```elisp
+'(60 600 86400)
+```
 
 The result screen shows the new state and next due time. While reviewing
 due cards, the due queue is refreshed after each answer, so a wrong card

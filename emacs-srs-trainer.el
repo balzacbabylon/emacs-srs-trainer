@@ -19,6 +19,7 @@
 
 (require 'cl-lib)
 (require 'subr-x)
+(require 'button)
 (require 'emacs-srs-trainer-deck)
 (require 'emacs-srs-trainer-scheduler)
 (require 'emacs-srs-trainer-storage)
@@ -95,6 +96,13 @@ be overridden for one command with a numeric prefix argument."
   (setq-local cursor-type nil)
   (setq-local buffer-read-only t)
   (setq-local truncate-lines nil))
+
+(define-derived-mode emacs-srs-trainer-welcome-mode special-mode "Emacs-SRS-Welcome"
+  "Major mode for the Emacs SRS Trainer welcome buffer."
+  (setq-local truncate-lines nil))
+
+(define-key emacs-srs-trainer-welcome-mode-map (kbd "TAB") #'forward-button)
+(define-key emacs-srs-trainer-welcome-mode-map (kbd "<backtab>") #'backward-button)
 
 (defun emacs-srs-trainer--prefix-argument-command-p (sequence)
   "Return non-nil when SEQUENCE invokes a prefix-argument command."
@@ -539,6 +547,105 @@ return cards whose topic matches it.  DECK defaults to
         (insert "Increase the session limit or run review again to continue.\n")))
       (goto-char (point-min)))))
 
+(defun emacs-srs-trainer--reviewed-card-entries (&optional state now)
+  "Return reviewed card entries sorted by most recent review first."
+  (let* ((loaded-state (or state (emacs-srs-trainer-storage-load)))
+         (timestamp (or now (emacs-srs-trainer-scheduler-now)))
+         (entries nil))
+    (dolist (card (emacs-srs-trainer-all-cards))
+      (let* ((card-state (emacs-srs-trainer-storage-card-state
+                          (emacs-srs-trainer-card-id card)
+                          loaded-state
+                          timestamp))
+             (last-reviewed (plist-get card-state :last-reviewed)))
+        (when last-reviewed
+          (push (list :card card
+                      :state card-state
+                      :last-reviewed last-reviewed)
+                entries))))
+    (sort entries
+          (lambda (a b)
+            (> (plist-get a :last-reviewed)
+               (plist-get b :last-reviewed))))))
+
+(defun emacs-srs-trainer--format-result-word (result)
+  "Return a display word for scheduler RESULT."
+  (pcase result
+    ('correct "Correct")
+    ('incorrect "Redo")
+    (_ "Unknown")))
+
+(defun emacs-srs-trainer--insert-deck-button (deck-name state now)
+  "Insert a welcome-screen button for DECK-NAME using STATE at NOW."
+  (let* ((cards (emacs-srs-trainer-deck-by-name deck-name))
+         (due-counts (emacs-srs-trainer-due-counts nil now state deck-name))
+         (state-counts (emacs-srs-trainer-queue-counts nil now state nil deck-name))
+         (due-total (or (plist-get due-counts :total) 0)))
+    (insert-text-button
+     deck-name
+     'deck-name deck-name
+     'follow-link t
+     'help-echo "RET/mouse-1: review due cards in this deck"
+     'action (lambda (button)
+               (emacs-srs-trainer-review-deck
+                (button-get button 'deck-name))))
+    (insert (format "    Due: %d    Cards: %d    %s\n"
+                    due-total
+                    (length cards)
+                    (emacs-srs-trainer-format-queue-counts state-counts)))))
+
+(defun emacs-srs-trainer--render-welcome
+    (buffer &optional reviewed correct-count state deck-name)
+  "Render the welcome/dashboard screen in BUFFER."
+  (let* ((loaded-state (or state (emacs-srs-trainer-storage-load)))
+         (now (emacs-srs-trainer-scheduler-now))
+         (recent (emacs-srs-trainer--reviewed-card-entries loaded-state now)))
+    (with-current-buffer buffer
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (emacs-srs-trainer-welcome-mode)
+        (insert "Emacs SRS Trainer\n")
+        (insert "=================\n\n")
+        (when reviewed
+          (insert (format "Recently reviewed in this session: %d"
+                          reviewed))
+          (when correct-count
+            (insert (format "    Correct: %d" correct-count)))
+          (when deck-name
+            (insert (format "    Deck: %s" deck-name)))
+          (insert "\n\n"))
+        (insert "Available decks\n")
+        (insert "---------------\n")
+        (dolist (name (emacs-srs-trainer-deck-names))
+          (emacs-srs-trainer--insert-deck-button name loaded-state now))
+        (insert "\nRecent reviews\n")
+        (insert "--------------\n")
+        (if recent
+            (dolist (entry (cl-subseq recent 0 (min 10 (length recent))))
+              (let* ((card (plist-get entry :card))
+                     (card-state (plist-get entry :state))
+                     (due (plist-get card-state :due))
+                     (last-reviewed (plist-get entry :last-reviewed))
+                     (result (plist-get card-state :last-result)))
+                (insert (format "%s    %s    %s\n"
+                                (emacs-srs-trainer--format-result-word result)
+                                (emacs-srs-trainer-format-delay
+                                 (- now last-reviewed))
+                                (plist-get card :deck)))
+                (insert (format "  %s\n" (plist-get card :question)))
+                (when due
+                  (insert (format "  Next due: %s\n"
+                                  (if (<= due now)
+                                      "now"
+                                    (concat "in "
+                                            (emacs-srs-trainer-format-delay
+                                             (- due now)))))))
+                (insert "\n")))
+          (insert "No cards have been reviewed yet.\n"))
+        (insert "\nTAB moves between deck buttons. RET opens the selected deck. ")
+        (insert "Use ordinary Emacs window commands to leave this buffer.\n")
+        (goto-char (point-min))))))
+
 (defun emacs-srs-trainer--render-result
     (buffer card grade &optional card-state now practice)
   "Append GRADE result for CARD to BUFFER."
@@ -678,7 +785,11 @@ of cards reviewed in this session."
           (setq cards (funcall refresh-function
                                state
                                (emacs-srs-trainer-scheduler-now)))))
-      (when (and (not quit) (> reviewed 0))
+      (cond
+       (quit
+        (emacs-srs-trainer--render-welcome
+         review-buffer reviewed correct-count state deck-name))
+       ((> reviewed 0)
         (let* ((complete-now (emacs-srs-trainer-scheduler-now))
                (state-counts (emacs-srs-trainer-queue-counts
                               topic complete-now state nil deck-name))
@@ -686,7 +797,7 @@ of cards reviewed in this session."
                             topic complete-now state deck-name)))
           (emacs-srs-trainer--render-complete
            review-buffer deck-name reviewed correct-count
-           state-counts due-counts practice session-limit)))
+           state-counts due-counts practice session-limit))))
       (list :reviewed reviewed :correct correct-count :quit quit
             :practice practice :limit session-limit))))
 

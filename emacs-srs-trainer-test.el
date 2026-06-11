@@ -267,20 +267,44 @@
          (state (emacs-srs-trainer-scheduler-new-state now))
          (updated (emacs-srs-trainer-scheduler-review state t now)))
     (should (= (plist-get updated :repetition-count) 1))
-    (should (= (plist-get updated :interval) 1))
+    (should (= (plist-get updated :learning-step) 1))
+    (should (= (plist-get updated :interval) 0))
     (should (eq (plist-get updated :last-result) 'correct))
-    (should (> (plist-get updated :due) now))))
+    (should (= (plist-get updated :due) (+ now 600)))))
+
+(ert-deftest emacs-srs-trainer-test-scheduler-learning-steps ()
+  (let* ((now 1000.0)
+         (new-state (emacs-srs-trainer-scheduler-new-state now))
+         (after-first-correct
+          (emacs-srs-trainer-scheduler-review new-state t now))
+         (after-second-correct
+          (emacs-srs-trainer-scheduler-review
+           after-first-correct t (+ now 600)))
+         (after-third-correct
+          (emacs-srs-trainer-scheduler-review
+           after-second-correct t (+ now 600 86400))))
+    (should (= (plist-get after-first-correct :learning-step) 1))
+    (should (= (plist-get after-first-correct :due) (+ now 600)))
+    (should (= (plist-get after-second-correct :learning-step) 2))
+    (should (= (plist-get after-second-correct :due)
+               (+ now 600 86400)))
+    (should (plist-get after-third-correct :graduated))
+    (should (eq (emacs-srs-trainer-scheduler-card-type after-third-correct)
+                'review))
+    (should (= (plist-get after-third-correct :interval)
+               emacs-srs-trainer-scheduler-graduating-interval-days))))
 
 (ert-deftest emacs-srs-trainer-test-scheduler-incorrect ()
   (let* ((now 1000.0)
          (state (emacs-srs-trainer-scheduler-new-state now))
          (updated (emacs-srs-trainer-scheduler-review state nil now)))
-    (should (= emacs-srs-trainer-scheduler-lapse-delay-seconds 60))
+    (should (= (car emacs-srs-trainer-scheduler-learning-steps-seconds) 60))
     (should (= (plist-get updated :repetition-count) 0))
+    (should (= (plist-get updated :learning-step) 0))
     (should (= (plist-get updated :lapse-count) 1))
     (should (eq (plist-get updated :last-result) 'incorrect))
     (should (= (plist-get updated :due)
-               (+ now emacs-srs-trainer-scheduler-lapse-delay-seconds)))))
+               (+ now 60)))))
 
 (ert-deftest emacs-srs-trainer-test-scheduler-card-types ()
   (let* ((now 1000.0)
@@ -289,9 +313,12 @@
           (emacs-srs-trainer-scheduler-review new-state nil now))
          (learning-after-first-correct
           (emacs-srs-trainer-scheduler-review new-state t now))
-         (review-after-second-correct
+         (still-learning-after-second-correct
           (emacs-srs-trainer-scheduler-review
-           learning-after-first-correct t now)))
+           learning-after-first-correct t now))
+         (review-after-third-correct
+          (emacs-srs-trainer-scheduler-review
+           still-learning-after-second-correct t now)))
     (should (eq (emacs-srs-trainer-scheduler-card-type new-state) 'new))
     (should (eq (emacs-srs-trainer-scheduler-card-type learning-after-wrong)
                 'learning))
@@ -299,7 +326,10 @@
                  learning-after-first-correct)
                 'learning))
     (should (eq (emacs-srs-trainer-scheduler-card-type
-                 review-after-second-correct)
+                 still-learning-after-second-correct)
+                'learning))
+    (should (eq (emacs-srs-trainer-scheduler-card-type
+                 review-after-third-correct)
                 'review))
     (should (string= (emacs-srs-trainer-scheduler-card-type-label 'review)
                      "To Review"))))
@@ -313,7 +343,9 @@
          (review-state
           (emacs-srs-trainer-scheduler-review
            (emacs-srs-trainer-scheduler-review
-            (emacs-srs-trainer-scheduler-new-state now) t now)
+            (emacs-srs-trainer-scheduler-review
+             (emacs-srs-trainer-scheduler-new-state now) t now)
+            t now)
            t now))
          (storage (emacs-srs-trainer-storage-empty-state)))
     (setq storage (emacs-srs-trainer-storage-put-card-state
@@ -479,15 +511,19 @@
                        (get-buffer-create " *emacs-srs-trainer-test*"))))
           (should (= (plist-get result :reviewed) 1))
           (should (= (plist-get result :correct) 1))
+          (should (plist-get result :quit))
           (should (file-exists-p file))
           (with-current-buffer " *emacs-srs-trainer-test*"
-            (should (string-match-p "State: New: [0-9]+    Learning: [0-9]+    To Review: [0-9]+"
+            (should (string-match-p "Emacs SRS Trainer"
                                     (buffer-string)))
-            (should (string-match-p "Due now: New: [0-9]+    Learning: [0-9]+    To Review: [0-9]+"
+            (should (string-match-p "Recently reviewed in this session: 1"
                                     (buffer-string)))
-            (should (string-match-p "Due: 1" (buffer-string)))
-            (should (string-match-p "Card type: New" (buffer-string)))
-            (should (string-match-p "Moved to: Learning" (buffer-string)))))
+            (should (string-match-p "Available decks"
+                                    (buffer-string)))
+            (should (string-match-p "Recent reviews"
+                                    (buffer-string)))
+            (goto-char (point-min))
+            (should (next-button (point-min)))))
       (ignore-errors (kill-buffer " *emacs-srs-trainer-test*"))
       (ignore-errors (delete-directory dir t)))))
 
@@ -506,7 +542,10 @@
                        emacs-srs-trainer-info-deck-name)))
           (should (= (plist-get result :reviewed) 1))
           (should (= (plist-get result :correct) 1))
+          (should (plist-get result :quit))
           (with-current-buffer " *emacs-srs-trainer-info-test*"
+            (should (string-match-p "Emacs SRS Trainer"
+                                    (buffer-string)))
             (should (string-match-p "Deck: Info: An Introduction"
                                     (buffer-string)))))
       (ignore-errors (kill-buffer " *emacs-srs-trainer-info-test*"))
@@ -597,7 +636,9 @@
             (should (equal (emacs-srs-trainer-storage-load file)
                            initial-state))
             (with-current-buffer emacs-srs-trainer-review-buffer-name
-              (should (string-match-p "Practice mode: progress unchanged"
+              (should (string-match-p "Emacs SRS Trainer"
+                                      (buffer-string)))
+              (should (string-match-p "Recently reviewed in this session: 1"
                                       (buffer-string))))))
       (ignore-errors (kill-buffer emacs-srs-trainer-review-buffer-name))
       (ignore-errors (delete-directory dir t)))))
@@ -631,11 +672,19 @@
                     (emacs-srs-trainer-due-cards nil nil refresh-now state)))))
             (should (= (plist-get result :reviewed) 2))
             (should (= (plist-get result :correct) 1))
+            (should (plist-get result :quit))
             (with-current-buffer " *emacs-srs-trainer-refresh-test*"
-              (should (string-match-p "Card type: Learning"
+              (should (string-match-p "Emacs SRS Trainer"
                                       (buffer-string)))
-              (should (string-match-p "Moved to: Learning"
-                                      (buffer-string))))))
+              (should (string-match-p "Recently reviewed in this session: 2"
+                                      (buffer-string))))
+            (let ((stored-card-state
+                   (emacs-srs-trainer-storage-card-state
+                    (emacs-srs-trainer-card-id card)
+                    (emacs-srs-trainer-storage-load file)
+                    now)))
+              (should (= (plist-get stored-card-state :learning-step) 1))
+              (should (= (plist-get stored-card-state :due) (+ now 600))))))
       (ignore-errors (kill-buffer " *emacs-srs-trainer-refresh-test*"))
       (ignore-errors (delete-directory dir t)))))
 
@@ -676,8 +725,11 @@
                          (get-buffer-create " *emacs-srs-trainer-wrong-test*"))))
             (should (= (plist-get result :reviewed) 1))
             (should (= (plist-get result :correct) 0))
+            (should (plist-get result :quit))
             (with-current-buffer " *emacs-srs-trainer-wrong-test*"
-              (should (string-match-p "Moved to: Learning"
+              (should (string-match-p "Emacs SRS Trainer"
+                                      (buffer-string)))
+              (should (string-match-p "Redo"
                                       (buffer-string)))
               (should (string-match-p "Next due: in 1 minute"
                                       (buffer-string))))))
