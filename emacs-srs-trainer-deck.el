@@ -62,7 +62,12 @@ unchanged and normalize the key name inside angle brackets."
                     token)
       (let ((prefix (match-string 1 token))
             (name (match-string 2 token)))
-        (concat prefix "<" (downcase name) ">"))
+        (pcase (downcase name)
+          ("return" (concat prefix "RET"))
+          ("tab" (concat prefix "TAB"))
+          ("escape" (concat prefix "ESC"))
+          ("backspace" (concat prefix "<backspace>"))
+          (_ (concat prefix "<" (downcase name) ">"))))
     token))
 
 (defun emacs-srs-trainer-deck--canonicalize-token (token)
