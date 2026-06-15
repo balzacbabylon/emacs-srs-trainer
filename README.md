@@ -155,6 +155,9 @@ all currently due cards were reviewed, it says:
 You have reviewed all due cards.
 ```
 
+At the completion prompt, press `m` to return to the main menu or `q` to
+leave the completion screen as-is.
+
 If you used a session limit and more cards remain due, it reports how many
 are still due.
 
@@ -359,8 +362,6 @@ emacs -Q --batch -L . -f batch-byte-compile \
 
 ## Known Limitations
 
-- M-x command-name cards test `M-x`; the package does not grade the
-  subsequent textual command name.
 - Repeated command behavior such as repeated `C-l` is represented as the
   key command that cycles behavior, not as a macro of repeated keypresses.
 - Prompt-only answers, mouse gestures, stand-alone Info reader keys, and

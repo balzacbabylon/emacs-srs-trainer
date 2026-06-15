@@ -470,29 +470,34 @@ with group order and item order preserved."
     '("completion" "minibuffer") "TUTORIAL:Extending the command set" '("<TAB>"))
    (emacs-srs-trainer-deck--card
     "tutorial-replace-string" "Extended commands" 'replace-string
-    "Start the named-command prompt before running replace-string." "M-x"
-    '("extended-command" "replace") "TUTORIAL:Extending the command set" '("<ESC> x")
-    '(:command-name "replace-string"))
+    "Run the literal text replacement command by name." "M-x replace-string RET"
+    '("extended-command" "replace") "TUTORIAL:Extending the command set"
+    '("<ESC> x replace-string RET")
+    '(:display-answer "M-x replace-string RET"))
    (emacs-srs-trainer-deck--card
     "tutorial-recover-this-file" "Files" 'recover-this-file
-    "Start the named-command prompt before recovering an auto-save file." "M-x"
-    '("extended-command" "files") "TUTORIAL:Auto save" '("<ESC> x")
-    '(:command-name "recover-this-file"))
+    "Recover the current file from its auto-save data by command name." "M-x recover-this-file RET"
+    '("extended-command" "files") "TUTORIAL:Auto save"
+    '("<ESC> x recover-this-file RET")
+    '(:display-answer "M-x recover-this-file RET"))
    (emacs-srs-trainer-deck--card
     "tutorial-fundamental-mode" "Modes and filling" 'fundamental-mode
-    "Start the named-command prompt before switching to Fundamental mode." "M-x"
-    '("extended-command" "modes") "TUTORIAL:Mode line" '("<ESC> x")
-    '(:command-name "fundamental-mode"))
+    "Switch to Fundamental mode by command name." "M-x fundamental-mode RET"
+    '("extended-command" "modes") "TUTORIAL:Mode line"
+    '("<ESC> x fundamental-mode RET")
+    '(:display-answer "M-x fundamental-mode RET"))
    (emacs-srs-trainer-deck--card
     "tutorial-text-mode" "Modes and filling" 'text-mode
-    "Start the named-command prompt before switching to Text mode." "M-x"
-    '("extended-command" "modes") "TUTORIAL:Mode line" '("<ESC> x")
-    '(:command-name "text-mode"))
+    "Switch to Text mode by command name." "M-x text-mode RET"
+    '("extended-command" "modes") "TUTORIAL:Mode line"
+    '("<ESC> x text-mode RET")
+    '(:display-answer "M-x text-mode RET"))
    (emacs-srs-trainer-deck--card
     "tutorial-auto-fill-mode" "Modes and filling" 'auto-fill-mode
-    "Start the named-command prompt before toggling Auto Fill mode." "M-x"
-    '("extended-command" "modes" "filling") "TUTORIAL:Modes and filling" '("<ESC> x")
-    '(:command-name "auto-fill-mode"))
+    "Toggle Auto Fill mode by command name." "M-x auto-fill-mode RET"
+    '("extended-command" "modes" "filling") "TUTORIAL:Modes and filling"
+    '("<ESC> x auto-fill-mode RET")
+    '(:display-answer "M-x auto-fill-mode RET"))
    (emacs-srs-trainer-deck--card
     "tutorial-describe-mode" "Help" 'describe-mode
     "Describe the current major and minor modes." "C-h m"
@@ -507,9 +512,10 @@ with group order and item order preserved."
     '("filling") "TUTORIAL:Modes and filling" '("<ESC> q"))
    (emacs-srs-trainer-deck--card
     "tutorial-list-packages" "Packages" 'list-packages
-    "Start the named-command prompt before listing installable packages." "M-x"
-    '("extended-command" "packages") "TUTORIAL:Installing packages" '("<ESC> x")
-    '(:command-name "list-packages"))
+    "Open the package menu listing installable packages by command name." "M-x list-packages RET"
+    '("extended-command" "packages") "TUTORIAL:Installing packages"
+    '("<ESC> x list-packages RET")
+    '(:display-answer "M-x list-packages RET"))
 
    ;; Searching.
    (emacs-srs-trainer-deck--card
@@ -656,9 +662,10 @@ with group order and item order preserved."
     '("movement" "nodes") "INFO:Help-]")
    (emacs-srs-trainer-deck--info-card
     "info-visible-mode" "Emacs Info display" 'visible-mode
-    "Start the named-command prompt before toggling visibility of hidden Info link text." "M-x"
-    '("display" "extended-command") "INFO:Help-Inv" '("<ESC> x")
-    '(:command-name "visible-mode"))
+    "Toggle visibility of hidden Info link text by command name." "M-x visible-mode RET"
+    '("display" "extended-command") "INFO:Help-Inv"
+    '("<ESC> x visible-mode RET")
+    '(:display-answer "M-x visible-mode RET"))
 
    ;; Menus, links, references, and history.
    (emacs-srs-trainer-deck--info-card
@@ -759,9 +766,10 @@ with group order and item order preserved."
     '("advanced" "index") "INFO:Search Index")
    (emacs-srs-trainer-deck--info-card
     "info-apropos" "Advanced index search" 'info-apropos
-    "Start the named-command prompt before searching all installed Info indices." "M-x"
-    '("advanced" "index" "extended-command") "INFO:Search Index" '("<ESC> x")
-    '(:command-name "info-apropos"))
+    "Search all installed Info indices by command name." "M-x info-apropos RET"
+    '("advanced" "index" "extended-command") "INFO:Search Index"
+    '("<ESC> x info-apropos RET")
+    '(:display-answer "M-x info-apropos RET"))
    (emacs-srs-trainer-deck--info-card
     "info-goto-node" "Advanced node jumps" 'Info-goto-node
     "Start a jump to an Info node by name." "g"
@@ -796,9 +804,10 @@ with group order and item order preserved."
     '("advanced" "buffers" "prefix") "INFO:Create Info buffer")
    (emacs-srs-trainer-deck--info-card
     "info-display-manual" "Advanced Info buffers" 'info-display-manual
-    "Start the named-command prompt before showing a manual by name while reusing an existing Info buffer when possible." "M-x"
-    '("advanced" "buffers" "extended-command") "INFO:Create Info buffer" '("<ESC> x")
-    '(:command-name "info-display-manual")))
+    "Show a manual by name while reusing an existing Info buffer when possible." "M-x info-display-manual RET"
+    '("advanced" "buffers" "extended-command") "INFO:Create Info buffer"
+    '("<ESC> x info-display-manual RET")
+    '(:display-answer "M-x info-display-manual RET")))
   "Curated deck derived from the installed Info manual introduction.")
 
 (defconst emacs-srs-trainer-org-manual-card-specs
@@ -1517,14 +1526,20 @@ with group order and item order preserved."
      "Run Org's context-sensitive action at point." "C-c C-c"
      ("context") "ORG:The Very Busy C-c C-c Key")
     ("org-reload" "Miscellaneous" org-reload
-     "Reload Org after updating it in the current Emacs session." "C-u M-x"
-     ("maintenance" "prefix") "ORG:Installation")
+     "Reload Org after updating it in the current Emacs session." "C-u M-x org-reload RET"
+     ("maintenance" "prefix" "extended-command") "ORG:Installation"
+     ("C-u <ESC> x org-reload RET")
+     (:display-answer "C-u M-x org-reload RET"))
     ("org-version" "Miscellaneous" org-version
-     "Start the command prompt before showing the installed Org version." "M-x"
-     ("maintenance" "extended-command") "ORG:Feedback")
+     "Show the installed Org version by command name." "M-x org-version RET"
+     ("maintenance" "extended-command") "ORG:Feedback"
+     ("<ESC> x org-version RET")
+     (:display-answer "M-x org-version RET"))
     ("org-submit-bug-report" "Miscellaneous" org-submit-bug-report
-     "Start the command prompt before composing an Org bug report." "M-x"
-     ("maintenance" "extended-command") "ORG:Feedback"))
+     "Compose an Org bug report by command name." "M-x org-submit-bug-report RET"
+     ("maintenance" "extended-command") "ORG:Feedback"
+     ("<ESC> x org-submit-bug-report RET")
+     (:display-answer "M-x org-submit-bug-report RET")))
   "Curated card specs derived from the installed Org manual.")
 
 (defconst emacs-srs-trainer-org-manual-cards

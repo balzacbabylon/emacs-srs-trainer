@@ -263,6 +263,20 @@
     (should (plist-get grade :correct))
     (should (string= (plist-get grade :answer) "M-f"))))
 
+(ert-deftest emacs-srs-trainer-test-extended-command-card-grading ()
+  (dolist (case '(("tutorial-replace-string" "M-x replace-string RET")
+                  ("info-apropos" "M-x info-apropos RET")
+                  ("org-version" "M-x org-version RET")
+                  ("org-reload" "C-u M-x org-reload RET")))
+    (pcase-let ((`(,card-id ,answer) case))
+      (let* ((card (emacs-srs-trainer-test--card card-id))
+             (correct-grade (emacs-srs-trainer-grade-answer card answer))
+             (precursor-grade (emacs-srs-trainer-grade-answer card "M-x")))
+        (should (plist-get correct-grade :correct))
+        (should-not (plist-get precursor-grade :correct))
+        (should (string= (emacs-srs-trainer-card-display-answer card)
+                         answer))))))
+
 (ert-deftest emacs-srs-trainer-test-backspace-alternative-grading ()
   (let* ((card (emacs-srs-trainer-test--card "tutorial-delete-backward-char"))
          (grade (emacs-srs-trainer-grade-answer card "<backspace>")))
@@ -590,9 +604,20 @@
             (should (= (plist-get result :correct) 1))
             (with-current-buffer " *emacs-srs-trainer-complete-test*"
               (should (string-match-p "You have reviewed all due cards"
+                                      (buffer-string)))
+              (should (string-match-p "m: main menu"
                                       (buffer-string))))))
       (ignore-errors (kill-buffer " *emacs-srs-trainer-complete-test*"))
       (ignore-errors (delete-directory dir t)))))
+
+(ert-deftest emacs-srs-trainer-test-completion-action-echo-prompt ()
+  (let (prompt)
+    (cl-letf (((symbol-function 'read-key)
+               (lambda (read-prompt)
+                 (setq prompt read-prompt)
+                 ?m)))
+      (should (eq (emacs-srs-trainer-read-completion-action) 'menu))
+      (should (string-match-p "main menu" prompt)))))
 
 (ert-deftest emacs-srs-trainer-test-review-loop-session-limit-completion ()
   (let* ((deck-name "Synthetic Limited")

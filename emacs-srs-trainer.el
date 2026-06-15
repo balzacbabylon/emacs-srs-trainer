@@ -85,6 +85,10 @@ be overridden for one command with a numeric prefix argument."
   #'emacs-srs-trainer-read-continuation
   "Function used by the review loop after grading.")
 
+(defvar emacs-srs-trainer-read-completion-action-function
+  #'emacs-srs-trainer-read-completion-action
+  "Function used by the review loop after a session completes.")
+
 (defvar emacs-srs-trainer-current-card nil
   "Card currently being answered by the review loop.")
 
@@ -237,6 +241,16 @@ Return one of the symbols `next', `quit', or `help'."
      ((eq key ?q) 'quit)
      ((eq key ??) 'help)
      (t 'next))))
+
+(defun emacs-srs-trainer-read-completion-action ()
+  "Read a key after a review session completes.
+
+Return one of the symbols `menu' or `quit'."
+  (let ((key (read-key "m main menu, q quit: ")))
+    (cond
+     ((eq key ?m) 'menu)
+     ((eq key ?q) 'quit)
+     (t 'quit))))
 
 (defun emacs-srs-trainer--event-description (event)
   "Return a normalized key description for single EVENT."
@@ -545,6 +559,7 @@ return cards whose topic matches it.  DECK defaults to
                         (if (= due-total 1) "" "s")
                         (if (= due-total 1) "remains" "remain")))
         (insert "Increase the session limit or run review again to continue.\n")))
+      (insert "\nm: main menu    q: quit\n")
       (goto-char (point-min)))))
 
 (defun emacs-srs-trainer--reviewed-card-entries (&optional state now)
@@ -797,7 +812,12 @@ of cards reviewed in this session."
                             topic complete-now state deck-name)))
           (emacs-srs-trainer--render-complete
            review-buffer deck-name reviewed correct-count
-           state-counts due-counts practice session-limit))))
+           state-counts due-counts practice session-limit)
+          (when (and (not noninteractive)
+                     (eq (funcall emacs-srs-trainer-read-completion-action-function)
+                         'menu))
+            (emacs-srs-trainer--render-welcome
+             review-buffer reviewed correct-count state deck-name)))))
       (list :reviewed reviewed :correct correct-count :quit quit
             :practice practice :limit session-limit))))
 
