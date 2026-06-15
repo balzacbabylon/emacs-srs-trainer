@@ -233,6 +233,14 @@
   (should (string= (emacs-srs-trainer-normalize-key "M-<RIGHT>") "M-<right>"))
   (should (string= (emacs-srs-trainer-normalize-key "M-<right>") "M-<right>")))
 
+(ert-deftest emacs-srs-trainer-test-key-display-compacts-typed-text ()
+  (should (string= (emacs-srs-trainer-display-key "M-x replace-string RET")
+                   "M-x replace-string RET"))
+  (should (string= (emacs-srs-trainer-display-key "C-u 2 0 C-x f")
+                   "C-u 20 C-x f"))
+  (should (string= (emacs-srs-trainer-display-key "g * RET")
+                   "g * RET")))
+
 (ert-deftest emacs-srs-trainer-test-org-arrow-key-grading ()
   (let* ((card (emacs-srs-trainer-test--card "org-do-demote"))
          (grade (emacs-srs-trainer-grade-answer card "M-<right>")))

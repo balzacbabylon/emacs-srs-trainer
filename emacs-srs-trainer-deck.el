@@ -98,11 +98,43 @@ KEY may be a string accepted by `kbd' or a vector returned by
     ((stringp key) (key-description (kbd key)))
     (t (error "Unsupported key value: %S" key)))))
 
+(defun emacs-srs-trainer-deck--compact-display-token-p (token)
+  "Return non-nil when TOKEN is part of typed text for display."
+  (string-match-p (rx bos (any alnum "-") eos) token))
+
+(defun emacs-srs-trainer-deck--compact-display-tokens (tokens)
+  "Compact adjacent typed-text TOKENS for display."
+  (let ((result nil)
+        (run nil))
+    (dolist (token tokens)
+      (if (emacs-srs-trainer-deck--compact-display-token-p token)
+          (push token run)
+        (when run
+          (push (if (cdr run)
+                    (mapconcat #'identity (nreverse run) "")
+                  (car run))
+                result)
+          (setq run nil))
+        (push token result)))
+    (when run
+      (push (if (cdr run)
+                (mapconcat #'identity (nreverse run) "")
+              (car run))
+            result))
+    (nreverse result)))
+
+(defun emacs-srs-trainer-display-key-description (description)
+  "Return user-facing display text for normalized key DESCRIPTION."
+  (mapconcat #'identity
+             (emacs-srs-trainer-deck--compact-display-tokens
+              (split-string description " " t))
+             " "))
+
 (defun emacs-srs-trainer-display-key (key)
   "Return a user-facing display string for KEY."
   (let ((normalized (emacs-srs-trainer-normalize-key key)))
     (or (cdr (assoc normalized emacs-srs-trainer-key-display-alist))
-        normalized)))
+        (emacs-srs-trainer-display-key-description normalized))))
 
 (defun emacs-srs-trainer-card-display-answer (card)
   "Return user-facing correct answer text for CARD."
