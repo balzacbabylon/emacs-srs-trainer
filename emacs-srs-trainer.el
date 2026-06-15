@@ -57,6 +57,15 @@ previous result screen.  Set this to 0 to disable debouncing."
   :type 'number
   :group 'emacs-srs-trainer)
 
+(defcustom emacs-srs-trainer-answer-feedback-delay-seconds 0.45
+  "Seconds to keep final answer feedback visible in the echo area.
+
+When an answer is completed, the echo area briefly flashes the typed
+sequence green for correct answers or the first wrong event red for
+incorrect answers.  Set this to 0 to disable the pause."
+  :type 'number
+  :group 'emacs-srs-trainer)
+
 (defcustom emacs-srs-trainer-review-card-limit nil
   "Maximum number of due cards to review in one session.
 
@@ -153,6 +162,62 @@ be overridden for one command with a numeric prefix argument."
                    (emacs-srs-trainer--token-prefix-p description answer))
                  normalized-answers))))
 
+(defun emacs-srs-trainer--answer-display-tokens (events)
+  "Return normalized display tokens for EVENTS."
+  (split-string (emacs-srs-trainer-normalize-key events) " " t))
+
+(defun emacs-srs-trainer--propertize-answer-tokens (tokens face)
+  "Return TOKENS with FACE applied to every token."
+  (mapcar (lambda (token)
+            (propertize token 'face face))
+          tokens))
+
+(defun emacs-srs-trainer--answer-feedback-message (tokens)
+  "Show TOKENS as the current answer in the echo area."
+  (message "%s"
+           (concat "Answer: "
+                   (emacs-srs-trainer-display-key-tokens tokens))))
+
+(defun emacs-srs-trainer--answer-feedback-prompt (events)
+  "Return an answer prompt showing EVENTS typed so far."
+  (concat "Answer: "
+          (when (> (length events) 0)
+            (concat
+             (emacs-srs-trainer-display-key-tokens
+              (emacs-srs-trainer--answer-display-tokens events))
+             " "))))
+
+(defun emacs-srs-trainer--answer-feedback-pause ()
+  "Pause after final answer feedback, then clear the echo area."
+  (when (and (not noninteractive)
+             emacs-srs-trainer-answer-feedback-delay-seconds
+             (> emacs-srs-trainer-answer-feedback-delay-seconds 0))
+    (sit-for emacs-srs-trainer-answer-feedback-delay-seconds)
+    (message nil)))
+
+(defun emacs-srs-trainer--echo-answer-progress (events)
+  "Echo current answer EVENTS without final grading feedback."
+  (emacs-srs-trainer--answer-feedback-message
+   (emacs-srs-trainer--answer-display-tokens events)))
+
+(defun emacs-srs-trainer--echo-correct-answer (events)
+  "Flash completed answer EVENTS as correct."
+  (emacs-srs-trainer--answer-feedback-message
+   (emacs-srs-trainer--propertize-answer-tokens
+    (emacs-srs-trainer--answer-display-tokens events)
+    'emacs-srs-trainer-correct-face))
+  (emacs-srs-trainer--answer-feedback-pause))
+
+(defun emacs-srs-trainer--echo-incorrect-answer (previous-events event)
+  "Flash EVENT as the first incorrect input after PREVIOUS-EVENTS."
+  (let ((tokens (append
+                 (emacs-srs-trainer--answer-display-tokens previous-events)
+                 (emacs-srs-trainer--propertize-answer-tokens
+                  (emacs-srs-trainer--answer-display-tokens (vector event))
+                  'emacs-srs-trainer-incorrect-face))))
+    (emacs-srs-trainer--answer-feedback-message tokens)
+    (emacs-srs-trainer--answer-feedback-pause)))
+
 (defun emacs-srs-trainer--read-answer-key-sequence-dispatch ()
   "Read one complete Emacs key sequence without card-aware early grading."
   (let ((events [])
@@ -199,18 +264,24 @@ immediately: if the card expects `C-x C-f' and the user starts with
               (overriding-local-map-menu-flag nil)
               (special-event-map special-event-map))
           (while (not done)
-            (setq events
-                  (vconcat events
-                           (vector (read-event "Answer key sequence: "))))
-            (let ((description (emacs-srs-trainer-normalize-key events)))
-              (cond
-               ((member description normalized-answers)
-                (setq done t))
-               ((emacs-srs-trainer--answer-prefix-p
-                 events answer-vectors normalized-answers)
-                nil)
-               (t
-                (setq done t)))))
+            (let ((previous-events events)
+                  (event (read-event
+                          (emacs-srs-trainer--answer-feedback-prompt
+                           events))))
+              (setq events (vconcat events (vector event)))
+              (let ((description (emacs-srs-trainer-normalize-key events)))
+                (cond
+                 ((member description normalized-answers)
+                  (emacs-srs-trainer--echo-correct-answer events)
+                  (setq done t))
+                 ((emacs-srs-trainer--answer-prefix-p
+                   events answer-vectors normalized-answers)
+                  (emacs-srs-trainer--echo-answer-progress events)
+                  nil)
+                 (t
+                  (emacs-srs-trainer--echo-incorrect-answer
+                   previous-events event)
+                  (setq done t))))))
           (emacs-srs-trainer-normalize-key events))
       (setq quit-flag old-quit-flag))))
 

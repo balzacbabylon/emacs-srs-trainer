@@ -123,12 +123,16 @@ KEY may be a string accepted by `kbd' or a vector returned by
             result))
     (nreverse result)))
 
+(defun emacs-srs-trainer-display-key-tokens (tokens)
+  "Return user-facing display text for normalized key TOKENS."
+  (mapconcat #'identity
+             (emacs-srs-trainer-deck--compact-display-tokens tokens)
+             " "))
+
 (defun emacs-srs-trainer-display-key-description (description)
   "Return user-facing display text for normalized key DESCRIPTION."
-  (mapconcat #'identity
-             (emacs-srs-trainer-deck--compact-display-tokens
-              (split-string description " " t))
-             " "))
+  (emacs-srs-trainer-display-key-tokens
+   (split-string description " " t)))
 
 (defun emacs-srs-trainer-display-key (key)
   "Return a user-facing display string for KEY."
