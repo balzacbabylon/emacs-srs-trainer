@@ -87,7 +87,7 @@ be overridden for one command with a numeric prefix argument."
   :group 'emacs-srs-trainer)
 
 (defvar emacs-srs-trainer-read-answer-function
-  #'emacs-srs-trainer-read-answer-key-sequence
+  #'emacs-srs-trainer-read-answer
   "Function used by the review loop to capture an answer.")
 
 (defvar emacs-srs-trainer-read-continuation-function
@@ -109,6 +109,17 @@ be overridden for one command with a numeric prefix argument."
 
 (defvar emacs-srs-trainer--answer-feedback-clear-time nil
   "Absolute time when final answer feedback should clear.")
+
+(defconst emacs-srs-trainer--default-deck-options
+  '(:card-type main :reverse-mode passive)
+  "Default per-deck review options.")
+
+(defvar emacs-srs-trainer-deck-options nil
+  "Per-deck review options.
+
+Each entry is (DECK-NAME . PLIST).  Supported properties are
+:card-type, either `main' or `reverse', and :reverse-mode, either
+`passive' or `active'.")
 
 (define-derived-mode emacs-srs-trainer-review-mode fundamental-mode "Emacs-SRS"
   "Major mode for the Emacs SRS review buffer."
@@ -253,6 +264,45 @@ not delay the primary review display state change."
     (emacs-srs-trainer--answer-feedback-message tokens)
     (emacs-srs-trainer--answer-feedback-schedule-clear)))
 
+(defun emacs-srs-trainer--text-answer-prompt (answer)
+  "Return an echo-area prompt showing typed text ANSWER."
+  (concat "Answer: " answer))
+
+(defun emacs-srs-trainer--text-answer-feedback-message (answer &optional face)
+  "Show typed text ANSWER in the echo area, optionally with FACE."
+  (emacs-srs-trainer--answer-feedback-cancel-clear-timer)
+  (message "%s"
+           (concat "Answer: "
+                   (if face
+                       (propertize answer 'face face)
+                     answer))))
+
+(defun emacs-srs-trainer--echo-text-answer-progress (answer)
+  "Echo active text ANSWER without grading feedback."
+  (emacs-srs-trainer--text-answer-feedback-message answer))
+
+(defun emacs-srs-trainer--echo-text-answer-result (answer correct)
+  "Flash active text ANSWER according to CORRECT."
+  (emacs-srs-trainer--text-answer-feedback-message
+   answer
+   (if correct
+       'emacs-srs-trainer-correct-face
+     'emacs-srs-trainer-incorrect-face))
+  (emacs-srs-trainer--answer-feedback-schedule-clear))
+
+(defun emacs-srs-trainer--return-event-p (event)
+  "Return non-nil when EVENT submits text or reveals passive cards."
+  (or (eq event 'return)
+      (eq event ?\r)
+      (eq event ?\n)))
+
+(defun emacs-srs-trainer--backspace-event-p (event)
+  "Return non-nil when EVENT deletes text input backward."
+  (or (eq event 'backspace)
+      (eq event 'delete)
+      (eq event ?\b)
+      (eq event 127)))
+
 (defun emacs-srs-trainer--read-answer-key-sequence-dispatch ()
   "Read one complete Emacs key sequence without card-aware early grading."
   (let ((events [])
@@ -336,6 +386,46 @@ sequence with `read-key-sequence-vector'."
       (emacs-srs-trainer--read-answer-key-sequence-for-card answer-card)
     (emacs-srs-trainer--read-answer-key-sequence-dispatch)))
 
+;;;###autoload
+(defun emacs-srs-trainer-read-answer-text ()
+  "Read a typed text answer, submitting only when RET is pressed."
+  (let ((answer "")
+        (done nil)
+        (old-quit-flag quit-flag))
+    (unwind-protect
+        (let ((inhibit-quit t)
+              (quit-flag nil)
+              (overriding-terminal-local-map nil)
+              (overriding-local-map nil)
+              (overriding-local-map-menu-flag nil)
+              (special-event-map special-event-map))
+          (while (not done)
+            (let ((event (read-event
+                          (emacs-srs-trainer--text-answer-prompt answer))))
+              (cond
+               ((emacs-srs-trainer--return-event-p event)
+                (setq done t))
+               ((emacs-srs-trainer--backspace-event-p event)
+                (when (> (length answer) 0)
+                  (setq answer (substring answer 0 -1)))
+                (emacs-srs-trainer--echo-text-answer-progress answer))
+               ((characterp event)
+                (setq answer (concat answer (char-to-string event)))
+                (emacs-srs-trainer--echo-text-answer-progress answer))
+               (t
+                (emacs-srs-trainer--echo-text-answer-progress answer)))))
+          answer)
+      (setq quit-flag old-quit-flag))))
+
+;;;###autoload
+(defun emacs-srs-trainer-read-answer (&optional card)
+  "Read an answer for CARD using the card's answer kind."
+  (let ((answer-card (or card emacs-srs-trainer-current-card)))
+    (if (and answer-card
+             (eq (emacs-srs-trainer-card-answer-kind answer-card) 'text))
+        (emacs-srs-trainer-read-answer-text)
+      (emacs-srs-trainer-read-answer-key-sequence answer-card))))
+
 (defun emacs-srs-trainer-read-continuation ()
   "Read a post-grading continuation key.
 
@@ -347,6 +437,25 @@ Return one of the symbols `next', `quit', or `help'."
      ((eq key ?q) 'quit)
      ((eq key ??) 'help)
      (t 'next))))
+
+(defun emacs-srs-trainer-read-passive-reveal-action ()
+  "Read whether to reveal a passive reverse card or quit."
+  (let ((key (read-key "RET/SPC reveal, q quit: ")))
+    (cond
+     ((or (emacs-srs-trainer--return-event-p key)
+          (eq key ?\s))
+      'reveal)
+     ((eq key ?q) 'quit)
+     (t 'reveal))))
+
+(defun emacs-srs-trainer-read-passive-grade-action ()
+  "Read a self-grade for a passive reverse card."
+  (let ((key (read-key "c/y correct, r/n redo, q quit: ")))
+    (cond
+     ((memq key '(?c ?y)) 'correct)
+     ((memq key '(?r ?n)) 'incorrect)
+     ((eq key ?q) 'quit)
+     (t 'incorrect))))
 
 (defun emacs-srs-trainer-read-completion-action ()
   "Read a key after a review session completes.
@@ -414,6 +523,67 @@ The result is one of `new', `learning', or `review'."
   (emacs-srs-trainer-scheduler-card-type-label
    (emacs-srs-trainer-card-type card state now)))
 
+(defun emacs-srs-trainer--deck-options (deck)
+  "Return review options for DECK."
+  (let ((entry (assoc-string deck emacs-srs-trainer-deck-options t)))
+    (if entry
+        (cdr entry)
+      emacs-srs-trainer--default-deck-options)))
+
+(defun emacs-srs-trainer--ensure-deck-options (deck)
+  "Return mutable review options for DECK."
+  (let ((entry (assoc-string deck emacs-srs-trainer-deck-options t)))
+    (unless entry
+      (setq entry (cons deck
+                        (copy-sequence
+                         emacs-srs-trainer--default-deck-options)))
+      (push entry emacs-srs-trainer-deck-options))
+    (cdr entry)))
+
+(defun emacs-srs-trainer--set-deck-option (deck property value)
+  "Set DECK option PROPERTY to VALUE."
+  (let ((options (emacs-srs-trainer--ensure-deck-options deck)))
+    (plist-put options property value)
+    value))
+
+(defun emacs-srs-trainer-deck-card-type (deck)
+  "Return selected card type for DECK."
+  (or (plist-get (emacs-srs-trainer--deck-options deck) :card-type)
+      'main))
+
+(defun emacs-srs-trainer-deck-reverse-mode (deck)
+  "Return selected reverse-card mode for DECK."
+  (or (plist-get (emacs-srs-trainer--deck-options deck) :reverse-mode)
+      'passive))
+
+(defun emacs-srs-trainer-set-deck-review-options
+    (deck card-type &optional reverse-mode)
+  "Set DECK review CARD-TYPE and optional REVERSE-MODE."
+  (emacs-srs-trainer--set-deck-option deck :card-type card-type)
+  (when reverse-mode
+    (emacs-srs-trainer--set-deck-option deck :reverse-mode reverse-mode))
+  (list :card-type (emacs-srs-trainer-deck-card-type deck)
+        :reverse-mode (emacs-srs-trainer-deck-reverse-mode deck)))
+
+(defun emacs-srs-trainer--review-cards-for-deck (deck)
+  "Return cards for DECK using its selected card view."
+  (let ((cards (emacs-srs-trainer-deck-by-name deck)))
+    (if (eq (emacs-srs-trainer-deck-card-type deck) 'reverse)
+        (mapcar (lambda (card)
+                  (emacs-srs-trainer-reverse-card
+                   card
+                   (emacs-srs-trainer-deck-reverse-mode deck)))
+                cards)
+      cards)))
+
+(defun emacs-srs-trainer--all-card-views ()
+  "Return main cards and reverse card views for recent-review display."
+  (let ((cards (emacs-srs-trainer-all-cards)))
+    (append cards
+            (mapcar (lambda (card)
+                      (emacs-srs-trainer-reverse-card card 'passive))
+                    cards))))
+
 (defun emacs-srs-trainer--empty-queue-counts ()
   "Return empty card queue counts."
   (list :new 0 :learning 0 :review 0 :total 0))
@@ -476,7 +646,7 @@ DUE-ONLY is non-nil, count only cards due at NOW."
                  (lambda (card)
                    (or (null topic)
                        (string= (emacs-srs-trainer-card-topic card) topic)))
-                 (emacs-srs-trainer-deck-by-name
+                 (emacs-srs-trainer--review-cards-for-deck
                   deck-name))))
     (emacs-srs-trainer--queue-counts-for-cards
      cards loaded-state timestamp due-only)))
@@ -567,6 +737,13 @@ inside each queue are shuffled when
                           (emacs-srs-trainer--shuffle-list ordered)
                         ordered)))))
 
+(defun emacs-srs-trainer--card-view-label (card)
+  "Return a display label for CARD's note/card view."
+  (pcase (emacs-srs-trainer-card-answer-kind card)
+    ('text "Reverse: command -> definition (active)")
+    ('passive "Reverse: command -> definition (passive)")
+    (_ "Main: definition -> command")))
+
 (defun emacs-srs-trainer-due-cards (&optional all topic now state deck limit)
   "Return cards due for review.
 
@@ -575,7 +752,7 @@ return cards whose topic matches it.  DECK defaults to
 `emacs-srs-trainer-default-deck'.  LIMIT caps the returned card count."
   (let* ((timestamp (or now (emacs-srs-trainer-scheduler-now)))
          (loaded-state (or state (emacs-srs-trainer-storage-load)))
-         (cards (emacs-srs-trainer-deck-by-name
+         (cards (emacs-srs-trainer--review-cards-for-deck
                  (or deck emacs-srs-trainer-default-deck))))
     (emacs-srs-trainer--limit-cards
      (cl-remove-if-not
@@ -604,6 +781,8 @@ return cards whose topic matches it.  DECK defaults to
                                        due-counts)))
       (insert (format "Due: %d\n" remaining))
       (insert (format "Card type: %s\n\n" card-type-label))
+      (insert (format "View: %s\n\n"
+                      (emacs-srs-trainer--card-view-label card)))
       (when (emacs-srs-trainer--normalize-card-limit limit)
         (insert (format "Session limit: %s\n"
                         (emacs-srs-trainer--session-limit-message limit))))
@@ -611,8 +790,16 @@ return cards whose topic matches it.  DECK defaults to
         (insert "Practice mode: progress will not be changed.\n"))
       (when (or practice (emacs-srs-trainer--normalize-card-limit limit))
         (insert "\n"))
-      (insert (format "Q: %s\n\n" (plist-get card :question)))
-      (insert "Press the actual Emacs key sequence now.\n")
+      (pcase (emacs-srs-trainer-card-answer-kind card)
+        ('text
+         (insert (format "Command: %s\n\n" (plist-get card :question)))
+         (insert "Type the definition, then press RET.\n"))
+        ('passive
+         (insert (format "Command: %s\n\n" (plist-get card :question)))
+         (insert "Think of the definition, then press RET or SPC to reveal.\n"))
+        (_
+         (insert (format "Q: %s\n\n" (plist-get card :question)))
+         (insert "Press the actual Emacs key sequence now.\n")))
       (goto-char (point-min)))))
 
 (defun emacs-srs-trainer--render-no-cards
@@ -633,6 +820,35 @@ return cards whose topic matches it.  DECK defaults to
       (insert message)
       (insert "\n")
       (goto-char (point-min)))))
+
+(defun emacs-srs-trainer--render-passive-answer (buffer card)
+  "Reveal passive reverse CARD answer in BUFFER."
+  (with-current-buffer buffer
+    (let ((inhibit-read-only t))
+      (goto-char (point-max))
+      (insert (format "\nDefinition: %s\n\n"
+                      (emacs-srs-trainer-card-display-answer card)))
+      (insert "c/y: correct    r/n: redo    q: quit\n")
+      (goto-char (point-min)))))
+
+(defun emacs-srs-trainer--passive-grade (correct)
+  "Return a passive self-grade plist for CORRECT."
+  (list :correct correct
+        :answer (if correct "Correct" "Redo")
+        :answer-kind 'passive
+        :accepted-answers nil))
+
+(defun emacs-srs-trainer--read-passive-grade (buffer card)
+  "Reveal CARD in BUFFER and read a passive self-grade."
+  (pcase (emacs-srs-trainer-read-passive-reveal-action)
+    ('quit (list :quit t :answer-kind 'passive))
+    (_
+     (emacs-srs-trainer--render-passive-answer buffer card)
+     (pcase (emacs-srs-trainer-read-passive-grade-action)
+       ('correct (emacs-srs-trainer--passive-grade t))
+       ('incorrect (emacs-srs-trainer--passive-grade nil))
+       ('quit (list :quit t :answer-kind 'passive))
+       (_ (emacs-srs-trainer--passive-grade nil))))))
 
 (defun emacs-srs-trainer--render-complete
     (buffer deck-name reviewed correct-count state-counts due-counts
@@ -673,7 +889,7 @@ return cards whose topic matches it.  DECK defaults to
   (let* ((loaded-state (or state (emacs-srs-trainer-storage-load)))
          (timestamp (or now (emacs-srs-trainer-scheduler-now)))
          (entries nil))
-    (dolist (card (emacs-srs-trainer-all-cards))
+    (dolist (card (emacs-srs-trainer--all-card-views))
       (let* ((card-state (emacs-srs-trainer-storage-card-state
                           (emacs-srs-trainer-card-id card)
                           loaded-state
@@ -696,12 +912,51 @@ return cards whose topic matches it.  DECK defaults to
     ('incorrect "Redo")
     (_ "Unknown")))
 
+(defun emacs-srs-trainer--deck-option-selected-p
+    (deck card-type &optional reverse-mode)
+  "Return non-nil when DECK is using CARD-TYPE and REVERSE-MODE."
+  (and (eq (emacs-srs-trainer-deck-card-type deck) card-type)
+       (or (not (eq card-type 'reverse))
+           (eq (emacs-srs-trainer-deck-reverse-mode deck)
+               reverse-mode))))
+
+(defun emacs-srs-trainer--insert-deck-option-button
+    (deck-name label card-type &optional reverse-mode)
+  "Insert a welcome-screen option button for DECK-NAME."
+  (let ((selected (emacs-srs-trainer--deck-option-selected-p
+                   deck-name card-type reverse-mode)))
+    (insert-text-button
+     (if selected
+         (format "[%s]" label)
+       (format " %s " label))
+     'deck-name deck-name
+     'card-type card-type
+     'reverse-mode reverse-mode
+     'follow-link t
+     'face (if selected 'bold 'button)
+     'help-echo "RET/mouse-1: select this review mode"
+     'action (lambda (button)
+               (emacs-srs-trainer-set-deck-review-options
+                (button-get button 'deck-name)
+                (button-get button 'card-type)
+                (button-get button 'reverse-mode))
+               (emacs-srs-trainer--render-welcome (current-buffer))))))
+
 (defun emacs-srs-trainer--insert-deck-button (deck-name state now)
   "Insert a welcome-screen button for DECK-NAME using STATE at NOW."
-  (let* ((cards (emacs-srs-trainer-deck-by-name deck-name))
+  (let* ((cards (emacs-srs-trainer--review-cards-for-deck deck-name))
          (due-counts (emacs-srs-trainer-due-counts nil now state deck-name))
          (state-counts (emacs-srs-trainer-queue-counts nil now state nil deck-name))
          (due-total (or (plist-get due-counts :total) 0)))
+    (emacs-srs-trainer--insert-deck-option-button
+     deck-name "Main" 'main)
+    (insert " ")
+    (emacs-srs-trainer--insert-deck-option-button
+     deck-name "Reverse passive" 'reverse 'passive)
+    (insert " ")
+    (emacs-srs-trainer--insert-deck-option-button
+     deck-name "Reverse active" 'reverse 'active)
+    (insert "  ")
     (insert-text-button
      deck-name
      'deck-name deck-name
@@ -763,7 +1018,7 @@ return cards whose topic matches it.  DECK defaults to
                                              (- due now)))))))
                 (insert "\n")))
           (insert "No cards have been reviewed yet.\n"))
-        (insert "\nTAB moves between deck buttons. RET opens the selected deck. ")
+        (insert "\nTAB moves between buttons. RET toggles a deck mode or opens a deck. ")
         (insert "Use ordinary Emacs window commands to leave this buffer.\n")
         (goto-char (point-min))))))
 
@@ -771,18 +1026,29 @@ return cards whose topic matches it.  DECK defaults to
     (buffer card grade &optional card-state now practice)
   "Append GRADE result for CARD to BUFFER."
   (with-current-buffer buffer
-    (let ((inhibit-read-only t))
+    (let ((inhibit-read-only t)
+          (answer-kind (or (plist-get grade :answer-kind)
+                           (emacs-srs-trainer-card-answer-kind card))))
       (goto-char (point-max))
-      (insert (format "\nYou pressed: %s\n"
-                      (emacs-srs-trainer-display-key
-                       (plist-get grade :answer))))
+      (pcase answer-kind
+        ('text
+         (insert (format "\nYou typed: %s\n"
+                         (plist-get grade :answer))))
+        ('passive
+         (insert (format "\nSelf grade: %s\n"
+                         (plist-get grade :answer))))
+        (_
+         (insert (format "\nYou pressed: %s\n"
+                         (emacs-srs-trainer-display-key
+                          (plist-get grade :answer))))))
       (if (plist-get grade :correct)
           (insert (propertize "Correct.\n"
                               'face 'emacs-srs-trainer-correct-face))
         (insert (propertize "Incorrect.\n"
                             'face 'emacs-srs-trainer-incorrect-face))
-        (insert (format "Correct answer: %s\n"
-                        (emacs-srs-trainer-card-display-answer card))))
+        (unless (eq answer-kind 'passive)
+          (insert (format "Correct answer: %s\n"
+                          (emacs-srs-trainer-card-display-answer card)))))
       (if practice
           (insert "Practice mode: progress unchanged.\n")
         (when card-state
@@ -808,6 +1074,21 @@ return cards whose topic matches it.  DECK defaults to
       (goto-char (point-max))
       (insert "\nAfter grading, RET and SPC continue; q quits the review. ")
       (insert "During answer capture, trainer controls are not active.\n"))))
+
+(defun emacs-srs-trainer--read-and-grade-card (buffer card)
+  "Read and grade CARD in BUFFER."
+  (pcase (emacs-srs-trainer-card-answer-kind card)
+    ('passive
+     (emacs-srs-trainer--read-passive-grade buffer card))
+    (_
+     (let* ((answer (let ((emacs-srs-trainer-current-card card))
+                      (funcall emacs-srs-trainer-read-answer-function)))
+            (grade (emacs-srs-trainer-grade-answer card answer)))
+       (when (eq (emacs-srs-trainer-card-answer-kind card) 'text)
+         (emacs-srs-trainer--echo-text-answer-result
+          answer
+          (plist-get grade :correct)))
+       grade))))
 
 (defun emacs-srs-trainer--review-cards
     (cards &optional buffer refresh-function topic deck practice limit)
@@ -865,40 +1146,41 @@ of cards reviewed in this session."
           (emacs-srs-trainer--render-question
            review-buffer card remaining state-counts due-counts card-type-label
            practice session-limit)
-          (let* ((answer (let ((emacs-srs-trainer-current-card card))
-                           (funcall emacs-srs-trainer-read-answer-function)))
-                 (grade (emacs-srs-trainer-grade-answer card answer))
-                 (correct (plist-get grade :correct)))
-            (setq reviewed (1+ reviewed))
-            (when correct
-              (setq correct-count (1+ correct-count)))
-            (let* ((result-now (emacs-srs-trainer-scheduler-now))
-                   (card-state
-                    (unless practice
-                      (setq state (emacs-srs-trainer-storage-review-card
-                                   (emacs-srs-trainer-card-id card)
-                                   correct
-                                   state))
-                      (emacs-srs-trainer-storage-save state)
-                      (emacs-srs-trainer-storage-card-state
-                       (emacs-srs-trainer-card-id card)
-                       state
-                       result-now))))
-              (emacs-srs-trainer--render-result
-               review-buffer card grade card-state result-now practice))
-            (emacs-srs-trainer--answer-feedback-wait-before-continuation)
-            (let ((continuing t))
-              (while continuing
-                (setq emacs-srs-trainer--last-continuation-event nil)
-                (pcase (funcall emacs-srs-trainer-read-continuation-function)
-                  ('next
-                   (emacs-srs-trainer--debounce-continuation-event
-                    emacs-srs-trainer--last-continuation-event)
-                   (setq continuing nil))
-                  ('quit (setq quit t
-                               continuing nil))
-                  ('help (emacs-srs-trainer--render-help review-buffer))
-                  (_ (setq continuing nil)))))))
+          (let ((grade (emacs-srs-trainer--read-and-grade-card
+                        review-buffer card)))
+            (if (plist-get grade :quit)
+                (setq quit t)
+              (let ((correct (plist-get grade :correct)))
+                (setq reviewed (1+ reviewed))
+                (when correct
+                  (setq correct-count (1+ correct-count)))
+                (let* ((result-now (emacs-srs-trainer-scheduler-now))
+                       (card-state
+                        (unless practice
+                          (setq state (emacs-srs-trainer-storage-review-card
+                                       (emacs-srs-trainer-card-id card)
+                                       correct
+                                       state))
+                          (emacs-srs-trainer-storage-save state)
+                          (emacs-srs-trainer-storage-card-state
+                           (emacs-srs-trainer-card-id card)
+                           state
+                           result-now))))
+                  (emacs-srs-trainer--render-result
+                   review-buffer card grade card-state result-now practice))
+                (emacs-srs-trainer--answer-feedback-wait-before-continuation)
+                (let ((continuing t))
+                  (while continuing
+                    (setq emacs-srs-trainer--last-continuation-event nil)
+                    (pcase (funcall emacs-srs-trainer-read-continuation-function)
+                      ('next
+                       (emacs-srs-trainer--debounce-continuation-event
+                        emacs-srs-trainer--last-continuation-event)
+                       (setq continuing nil))
+                      ('quit (setq quit t
+                                   continuing nil))
+                      ('help (emacs-srs-trainer--render-help review-buffer))
+                      (_ (setq continuing nil)))))))))
         (setq cards (cdr cards))
         (when (and refresh-function
                    (not quit)
@@ -1049,7 +1331,8 @@ Customize so it persists across Emacs sessions."
   "Show review statistics."
   (interactive)
   (let* ((state (emacs-srs-trainer-storage-load))
-         (cards (emacs-srs-trainer-deck-by-name emacs-srs-trainer-default-deck))
+         (cards (emacs-srs-trainer--review-cards-for-deck
+                 emacs-srs-trainer-default-deck))
          (now (emacs-srs-trainer-scheduler-now))
          (due (emacs-srs-trainer-due-cards nil nil now state))
          (state-counts (emacs-srs-trainer-queue-counts nil now state))

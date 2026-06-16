@@ -17,6 +17,7 @@
 ;;; Code:
 
 (require 'cl-lib)
+(require 'subr-x)
 
 (defgroup emacs-srs-trainer nil
   "Emacs-native spaced repetition for Emacs keybindings."
@@ -28,6 +29,9 @@
 
 (defvar emacs-srs-trainer-decks nil
   "Registered decks as an alist of (DECK-NAME . CARDS).")
+
+(defconst emacs-srs-trainer-reverse-card-id-suffix "::reverse"
+  "Suffix used to store reverse-card scheduler state separately.")
 
 (defconst emacs-srs-trainer-required-card-fields
   '(:id :deck :topic :question :canonical-answer :tags :source-ref)
@@ -145,6 +149,13 @@ KEY may be a string accepted by `kbd' or a vector returned by
   (or (plist-get card :display-answer)
       (emacs-srs-trainer-display-key (plist-get card :canonical-answer))))
 
+(defun emacs-srs-trainer-card-answer-kind (card)
+  "Return answer kind for CARD.
+
+The result is `key' for key-sequence cards, `text' for active
+definition-entry cards, or `passive' for self-graded cards."
+  (or (plist-get card :answer-kind) 'key))
+
 (defun emacs-srs-trainer-card-id (card)
   "Return CARD's id."
   (plist-get card :id))
@@ -155,26 +166,82 @@ KEY may be a string accepted by `kbd' or a vector returned by
 
 (defun emacs-srs-trainer-card-answers (card)
   "Return CARD's canonical answer plus accepted alternatives."
-  (cons (plist-get card :canonical-answer)
-        (plist-get card :accepted-answers)))
+  (delq nil
+        (if (memq (emacs-srs-trainer-card-answer-kind card) '(text passive))
+            (cons (plist-get card :text-answer)
+                  (plist-get card :accepted-answers))
+          (cons (plist-get card :canonical-answer)
+                (plist-get card :accepted-answers)))))
+
+(defun emacs-srs-trainer-normalize-text-answer (answer)
+  "Return ANSWER normalized for active reverse-card comparison."
+  (let ((text (downcase (or answer ""))))
+    (setq text (replace-regexp-in-string (rx (one-or-more punct)) " " text))
+    (setq text (replace-regexp-in-string (rx (one-or-more space)) " " text))
+    (string-trim text)))
 
 (defun emacs-srs-trainer-card-normalized-answers (card)
   "Return normalized accepted answer strings for CARD."
   (delete-dups
-   (mapcar #'emacs-srs-trainer-normalize-key
-           (emacs-srs-trainer-card-answers card))))
+   (if (memq (emacs-srs-trainer-card-answer-kind card) '(text passive))
+       (mapcar #'emacs-srs-trainer-normalize-text-answer
+               (emacs-srs-trainer-card-answers card))
+     (mapcar #'emacs-srs-trainer-normalize-key
+             (emacs-srs-trainer-card-answers card)))))
 
 (defun emacs-srs-trainer-grade-answer (card answer)
   "Grade ANSWER against CARD.
 
-ANSWER may be a vector from `read-key-sequence-vector' or a key
-notation string.  Return a plist with :correct, :answer, and
-:accepted-answers."
-  (let* ((normalized-answer (emacs-srs-trainer-normalize-key answer))
-         (accepted (emacs-srs-trainer-card-normalized-answers card)))
-    (list :correct (member normalized-answer accepted)
-          :answer normalized-answer
-          :accepted-answers accepted)))
+ANSWER may be a vector from `read-key-sequence-vector', key notation
+string, or active text answer depending on CARD.  Return a plist with
+:correct, :answer, and :accepted-answers."
+  (let ((kind (emacs-srs-trainer-card-answer-kind card)))
+    (if (memq kind '(text passive))
+        (let* ((normalized-answer (emacs-srs-trainer-normalize-text-answer answer))
+               (accepted (emacs-srs-trainer-card-normalized-answers card)))
+          (list :correct (member normalized-answer accepted)
+                :answer answer
+                :normalized-answer normalized-answer
+                :answer-kind kind
+                :accepted-answers accepted))
+      (let* ((normalized-answer (emacs-srs-trainer-normalize-key answer))
+             (accepted (emacs-srs-trainer-card-normalized-answers card)))
+        (list :correct (member normalized-answer accepted)
+              :answer normalized-answer
+              :answer-kind kind
+              :accepted-answers accepted)))))
+
+(defun emacs-srs-trainer-card-note-id (card)
+  "Return the shared note id for CARD."
+  (or (plist-get card :note-id)
+      (emacs-srs-trainer-card-id card)))
+
+(defun emacs-srs-trainer-reverse-card-id (card)
+  "Return the reverse-card id for CARD."
+  (concat (emacs-srs-trainer-card-note-id card)
+          emacs-srs-trainer-reverse-card-id-suffix))
+
+(defun emacs-srs-trainer-reverse-card (card &optional mode)
+  "Return a reverse card view for CARD.
+
+MODE is `passive' for self-graded definition recall or `active' for a
+typed definition answer.  The reverse card shares CARD's note data but
+uses its own id so scheduler progress is independent."
+  (let ((answer-kind (if (eq mode 'active) 'text 'passive)))
+    (list :id (emacs-srs-trainer-reverse-card-id card)
+          :note-id (emacs-srs-trainer-card-note-id card)
+          :card-template 'reverse
+          :deck (plist-get card :deck)
+          :topic (plist-get card :topic)
+          :command (plist-get card :command)
+          :question (emacs-srs-trainer-card-display-answer card)
+          :canonical-answer (plist-get card :canonical-answer)
+          :text-answer (plist-get card :question)
+          :display-answer (plist-get card :question)
+          :accepted-answers (plist-get card :accepted-definition-answers)
+          :tags (plist-get card :tags)
+          :source-ref (plist-get card :source-ref)
+          :answer-kind answer-kind)))
 
 (defun emacs-srs-trainer-register-deck (name cards)
   "Register CARDS under deck NAME."

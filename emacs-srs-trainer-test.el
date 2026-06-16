@@ -38,6 +38,21 @@
     (setq card (plist-put card :deck deck))
     card))
 
+(defun emacs-srs-trainer-test--find-button (buffer predicate)
+  "Return first button in BUFFER satisfying PREDICATE."
+  (with-current-buffer buffer
+    (save-excursion
+      (goto-char (point-min))
+      (let ((button nil)
+            (position (point-min)))
+        (while (and (not button)
+                    (setq position (next-button position)))
+          (let ((candidate (button-at position)))
+            (if (funcall predicate candidate)
+                (setq button candidate)
+              (setq position (button-end candidate)))))
+        button))))
+
 (ert-deftest emacs-srs-trainer-test-deck-loading ()
   (should (assoc emacs-srs-trainer-tutorial-deck-name
                  (emacs-srs-trainer-load-decks)))
@@ -240,6 +255,56 @@
                    "C-u 20 C-x f"))
   (should (string= (emacs-srs-trainer-display-key "g * RET")
                    "g * RET")))
+
+(ert-deftest emacs-srs-trainer-test-reverse-card-generation ()
+  (let* ((card (emacs-srs-trainer-test--synthetic-deck-card
+                "synthetic-reverse" "Synthetic Reverse" "C-f"))
+         (reverse (emacs-srs-trainer-reverse-card card 'active)))
+    (should (string= (emacs-srs-trainer-card-id reverse)
+                     "synthetic-reverse::reverse"))
+    (should (string= (emacs-srs-trainer-card-note-id reverse)
+                     "synthetic-reverse"))
+    (should (eq (plist-get reverse :card-template) 'reverse))
+    (should (eq (emacs-srs-trainer-card-answer-kind reverse) 'text))
+    (should (string= (plist-get reverse :question) "C-f"))
+    (should (string= (emacs-srs-trainer-card-display-answer reverse)
+                     "Synthetic question"))))
+
+(ert-deftest emacs-srs-trainer-test-active-reverse-text-grading ()
+  (let* ((card (plist-put
+                (emacs-srs-trainer-test--synthetic-deck-card
+                 "synthetic-text-reverse" "Synthetic Reverse" "C-f")
+                :question
+                "Move forward, one character."))
+         (reverse (emacs-srs-trainer-reverse-card card 'active))
+         (grade (emacs-srs-trainer-grade-answer
+                 reverse
+                 "MOVE forward one character")))
+    (should (string= (emacs-srs-trainer-normalize-text-answer
+                      "Move forward, one character!")
+                     "move forward one character"))
+    (should (plist-get grade :correct))
+    (should (string= (plist-get grade :normalized-answer)
+                     "move forward one character"))))
+
+(ert-deftest emacs-srs-trainer-test-selected-deck-review-cards ()
+  (let* ((deck-name "Synthetic View Select")
+         (card (emacs-srs-trainer-test--synthetic-deck-card
+                "synthetic-view-select" deck-name "C-f"))
+         (emacs-srs-trainer-decks nil)
+         (emacs-srs-trainer-deck-options nil))
+    (emacs-srs-trainer-register-deck deck-name (list card))
+    (should (string= (emacs-srs-trainer-card-id
+                      (car (emacs-srs-trainer--review-cards-for-deck
+                            deck-name)))
+                     "synthetic-view-select"))
+    (emacs-srs-trainer-set-deck-review-options deck-name 'reverse 'passive)
+    (let ((reverse (car (emacs-srs-trainer--review-cards-for-deck
+                         deck-name))))
+      (should (string= (emacs-srs-trainer-card-id reverse)
+                       "synthetic-view-select::reverse"))
+      (should (eq (emacs-srs-trainer-card-answer-kind reverse)
+                  'passive)))))
 
 (ert-deftest emacs-srs-trainer-test-org-arrow-key-grading ()
   (let* ((card (emacs-srs-trainer-test--card "org-do-demote"))
@@ -550,6 +615,40 @@
             (should (next-button (point-min)))))
       (ignore-errors (kill-buffer emacs-srs-trainer-review-buffer-name)))))
 
+(ert-deftest emacs-srs-trainer-test-welcome-deck-mode-toggle ()
+  (let* ((deck-name "Synthetic Welcome Toggle")
+         (card (emacs-srs-trainer-test--synthetic-deck-card
+                "synthetic-welcome-toggle" deck-name "C-f"))
+         (buffer (get-buffer-create " *emacs-srs-trainer-toggle-test*"))
+         (dir (make-temp-file "emacs-srs-trainer-toggle-" t))
+         (file (expand-file-name "state.el" dir))
+         (emacs-srs-trainer-decks nil)
+         (emacs-srs-trainer-deck-options nil)
+         (emacs-srs-trainer-storage-file file))
+    (unwind-protect
+        (progn
+          (emacs-srs-trainer-register-deck deck-name (list card))
+          (emacs-srs-trainer--render-welcome buffer)
+          (let ((button (emacs-srs-trainer-test--find-button
+                         buffer
+                         (lambda (candidate)
+                           (and (eq (button-get candidate 'card-type)
+                                    'reverse)
+                                (eq (button-get candidate 'reverse-mode)
+                                    'active))))))
+            (should button)
+            (with-current-buffer buffer
+              (funcall (button-get button 'action) button))
+            (should (eq (emacs-srs-trainer-deck-card-type deck-name)
+                        'reverse))
+            (should (eq (emacs-srs-trainer-deck-reverse-mode deck-name)
+                        'active))
+            (with-current-buffer buffer
+              (should (string-match-p "\\[Reverse active\\]"
+                                      (buffer-string))))))
+      (ignore-errors (kill-buffer buffer))
+      (ignore-errors (delete-directory dir t)))))
+
 (ert-deftest emacs-srs-trainer-test-review-loop-smoke ()
   (let* ((dir (make-temp-file "emacs-srs-trainer-review-" t))
          (file (expand-file-name "state.el" dir))
@@ -601,6 +700,83 @@
             (should (string-match-p "Deck: Info: An Introduction"
                                     (buffer-string)))))
       (ignore-errors (kill-buffer " *emacs-srs-trainer-info-test*"))
+      (ignore-errors (delete-directory dir t)))))
+
+(ert-deftest emacs-srs-trainer-test-active-reverse-review-state ()
+  (let* ((deck-name "Synthetic Active Reverse")
+         (card (plist-put
+                (emacs-srs-trainer-test--synthetic-deck-card
+                 "synthetic-active-reverse" deck-name "C-f")
+                :question
+                "Move forward, one character."))
+         (reverse (emacs-srs-trainer-reverse-card card 'active))
+         (dir (make-temp-file "emacs-srs-trainer-active-reverse-" t))
+         (file (expand-file-name "state.el" dir))
+         (now 1000.0)
+         (emacs-srs-trainer-storage-file file)
+         (emacs-srs-trainer-read-answer-function
+          (lambda () "move forward one character"))
+         (emacs-srs-trainer-read-continuation-function (lambda () 'quit)))
+    (unwind-protect
+        (cl-letf (((symbol-function 'emacs-srs-trainer-scheduler-now)
+                   (lambda () now)))
+          (let ((result (emacs-srs-trainer--review-cards
+                         (list reverse)
+                         (get-buffer-create
+                          " *emacs-srs-trainer-active-reverse-test*")
+                         nil nil deck-name)))
+            (should (= (plist-get result :reviewed) 1))
+            (should (= (plist-get result :correct) 1))
+            (let* ((state (emacs-srs-trainer-storage-load file))
+                   (reverse-state (emacs-srs-trainer-storage-card-state
+                                   "synthetic-active-reverse::reverse"
+                                   state now))
+                   (main-state (emacs-srs-trainer-storage-card-state
+                                "synthetic-active-reverse" state now)))
+              (should (plist-get reverse-state :last-reviewed))
+              (should-not (plist-get main-state :last-reviewed))
+              (should (eq (plist-get reverse-state :last-result)
+                          'correct)))))
+      (ignore-errors
+        (kill-buffer " *emacs-srs-trainer-active-reverse-test*"))
+      (ignore-errors (delete-directory dir t)))))
+
+(ert-deftest emacs-srs-trainer-test-passive-reverse-review-state ()
+  (let* ((deck-name "Synthetic Passive Reverse")
+         (card (emacs-srs-trainer-test--synthetic-deck-card
+                "synthetic-passive-reverse" deck-name "C-f"))
+         (reverse (emacs-srs-trainer-reverse-card card 'passive))
+         (dir (make-temp-file "emacs-srs-trainer-passive-reverse-" t))
+         (file (expand-file-name "state.el" dir))
+         (keys '(?\r ?c))
+         (now 1000.0)
+         (emacs-srs-trainer-storage-file file)
+         (emacs-srs-trainer-read-continuation-function (lambda () 'quit)))
+    (unwind-protect
+        (cl-letf (((symbol-function 'read-key)
+                   (lambda (&rest _args)
+                     (pop keys)))
+                  ((symbol-function 'emacs-srs-trainer-scheduler-now)
+                   (lambda () now)))
+          (let ((result (emacs-srs-trainer--review-cards
+                         (list reverse)
+                         (get-buffer-create
+                          " *emacs-srs-trainer-passive-reverse-test*")
+                         nil nil deck-name)))
+            (should (= (plist-get result :reviewed) 1))
+            (should (= (plist-get result :correct) 1))
+            (let* ((state (emacs-srs-trainer-storage-load file))
+                   (reverse-state (emacs-srs-trainer-storage-card-state
+                                   "synthetic-passive-reverse::reverse"
+                                   state now))
+                   (main-state (emacs-srs-trainer-storage-card-state
+                                "synthetic-passive-reverse" state now)))
+              (should (plist-get reverse-state :last-reviewed))
+              (should-not (plist-get main-state :last-reviewed))
+              (should (eq (plist-get reverse-state :last-result)
+                          'correct)))))
+      (ignore-errors
+        (kill-buffer " *emacs-srs-trainer-passive-reverse-test*"))
       (ignore-errors (delete-directory dir t)))))
 
 (ert-deftest emacs-srs-trainer-test-review-loop-renders-completion ()
@@ -975,6 +1151,66 @@
                        "C-x C-f")))
     (should (equal (nreverse prompts)
                    '("Answer: " "Answer: C-x ")))))
+
+(ert-deftest emacs-srs-trainer-test-text-answer-capture-waits-for-ret ()
+  (let ((events (append (string-to-list "Go!")
+                        (list 127 ?d ?\r)))
+        messages
+        prompts)
+    (cl-letf (((symbol-function 'read-event)
+               (lambda (prompt &optional _inherit-input-method _seconds)
+                 (push prompt prompts)
+                 (pop events)))
+              ((symbol-function 'message)
+               (lambda (format-string &rest args)
+                 (push (if (and (string= format-string "%s") args)
+                           (car args)
+                         (apply #'format-message format-string args))
+                       messages))))
+      (should (string= (emacs-srs-trainer-read-answer-text) "God")))
+    (should (equal (nreverse prompts)
+                   '("Answer: "
+                     "Answer: G"
+                     "Answer: Go"
+                     "Answer: Go!"
+                     "Answer: Go"
+                     "Answer: God")))
+    (should (equal (mapcar #'substring-no-properties
+                           (nreverse messages))
+                   '("Answer: G"
+                     "Answer: Go"
+                     "Answer: Go!"
+                     "Answer: Go"
+                     "Answer: God")))))
+
+(ert-deftest emacs-srs-trainer-test-active-text-answer-final-flash ()
+  (let* ((card (plist-put
+                (emacs-srs-trainer-test--synthetic-deck-card
+                 "synthetic-final-flash" "Synthetic Final Flash" "C-f")
+                :question
+                "Move forward, one character."))
+         (reverse (emacs-srs-trainer-reverse-card card 'active))
+         (emacs-srs-trainer-read-answer-function
+          (lambda () "move forward one character"))
+         messages)
+    (cl-letf (((symbol-function 'message)
+               (lambda (format-string &rest args)
+                 (push (if (and (string= format-string "%s") args)
+                           (car args)
+                         (apply #'format-message format-string args))
+                       messages))))
+      (let ((grade (emacs-srs-trainer--read-and-grade-card
+                    (get-buffer-create
+                     " *emacs-srs-trainer-final-flash-test*")
+                    reverse)))
+        (should (plist-get grade :correct))))
+    (let ((final (car messages)))
+      (should (string= (substring-no-properties final)
+                       "Answer: move forward one character"))
+      (should (eq (get-text-property (length "Answer: ") 'face final)
+                  'emacs-srs-trainer-correct-face)))
+    (ignore-errors
+      (kill-buffer " *emacs-srs-trainer-final-flash-test*"))))
 
 (ert-deftest emacs-srs-trainer-test-answer-feedback-clear-is-nonblocking ()
   (let ((noninteractive nil)
