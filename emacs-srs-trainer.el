@@ -107,6 +107,9 @@ be overridden for one command with a numeric prefix argument."
 (defvar emacs-srs-trainer--answer-feedback-clear-timer nil
   "Timer used to clear answer feedback from the echo area.")
 
+(defvar emacs-srs-trainer--answer-feedback-clear-time nil
+  "Absolute time when final answer feedback should clear.")
+
 (define-derived-mode emacs-srs-trainer-review-mode fundamental-mode "Emacs-SRS"
   "Major mode for the Emacs SRS review buffer."
   (setq-local cursor-type nil)
@@ -195,7 +198,8 @@ be overridden for one command with a numeric prefix argument."
   "Cancel any pending answer feedback clear timer."
   (when (timerp emacs-srs-trainer--answer-feedback-clear-timer)
     (cancel-timer emacs-srs-trainer--answer-feedback-clear-timer))
-  (setq emacs-srs-trainer--answer-feedback-clear-timer nil))
+  (setq emacs-srs-trainer--answer-feedback-clear-timer nil
+        emacs-srs-trainer--answer-feedback-clear-time nil))
 
 (defun emacs-srs-trainer--answer-feedback-schedule-clear ()
   "Schedule final answer feedback to clear without blocking review flow."
@@ -203,13 +207,28 @@ be overridden for one command with a numeric prefix argument."
   (when (and (not noninteractive)
              emacs-srs-trainer-answer-feedback-delay-seconds
              (> emacs-srs-trainer-answer-feedback-delay-seconds 0))
+    (setq emacs-srs-trainer--answer-feedback-clear-time
+          (+ (float-time) emacs-srs-trainer-answer-feedback-delay-seconds))
     (setq emacs-srs-trainer--answer-feedback-clear-timer
           (run-at-time
            emacs-srs-trainer-answer-feedback-delay-seconds
            nil
            (lambda ()
-             (setq emacs-srs-trainer--answer-feedback-clear-timer nil)
+             (setq emacs-srs-trainer--answer-feedback-clear-timer nil
+                   emacs-srs-trainer--answer-feedback-clear-time nil)
              (message nil))))))
+
+(defun emacs-srs-trainer--answer-feedback-wait-before-continuation ()
+  "Let final echo-area answer feedback finish before prompting again.
+
+This runs after the result buffer has already been rendered, so it does
+not delay the primary review display state change."
+  (when (and (not noninteractive)
+             emacs-srs-trainer--answer-feedback-clear-time)
+    (let ((remaining (- emacs-srs-trainer--answer-feedback-clear-time
+                        (float-time))))
+      (when (> remaining 0)
+        (sit-for remaining)))))
 
 (defun emacs-srs-trainer--echo-answer-progress (events)
   "Echo current answer EVENTS without final grading feedback."
@@ -867,6 +886,7 @@ of cards reviewed in this session."
                        result-now))))
               (emacs-srs-trainer--render-result
                review-buffer card grade card-state result-now practice))
+            (emacs-srs-trainer--answer-feedback-wait-before-continuation)
             (let ((continuing t))
               (while continuing
                 (setq emacs-srs-trainer--last-continuation-event nil)

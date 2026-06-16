@@ -632,6 +632,38 @@
       (ignore-errors (kill-buffer " *emacs-srs-trainer-complete-test*"))
       (ignore-errors (delete-directory dir t)))))
 
+(ert-deftest emacs-srs-trainer-test-feedback-wait-after-result-render ()
+  (let* ((deck-name "Synthetic Wait Order")
+         (buffer-name " *emacs-srs-trainer-wait-order-test*")
+         (card (emacs-srs-trainer-test--synthetic-deck-card
+                "synthetic-wait-order" deck-name "C-f"))
+         (dir (make-temp-file "emacs-srs-trainer-wait-order-" t))
+         (file (expand-file-name "state.el" dir))
+         (emacs-srs-trainer-decks nil)
+         (emacs-srs-trainer-default-deck deck-name)
+         (emacs-srs-trainer-storage-file file)
+         (emacs-srs-trainer-read-answer-function (lambda () "C-f"))
+         (emacs-srs-trainer-read-continuation-function (lambda () 'quit))
+         wait-saw-result)
+    (unwind-protect
+        (progn
+          (emacs-srs-trainer-register-deck deck-name (list card))
+          (cl-letf (((symbol-function
+                      'emacs-srs-trainer--answer-feedback-wait-before-continuation)
+                     (lambda ()
+                       (with-current-buffer buffer-name
+                         (setq wait-saw-result
+                               (string-match-p "Correct\\."
+                                               (buffer-string)))))))
+            (let ((result (emacs-srs-trainer--review-cards
+                           (list card)
+                           (get-buffer-create buffer-name)
+                           nil nil deck-name)))
+              (should (= (plist-get result :reviewed) 1))
+              (should wait-saw-result))))
+      (ignore-errors (kill-buffer buffer-name))
+      (ignore-errors (delete-directory dir t)))))
+
 (ert-deftest emacs-srs-trainer-test-completion-action-echo-prompt ()
   (let (prompt)
     (cl-letf (((symbol-function 'read-key)
@@ -965,6 +997,18 @@
     (should (equal (car scheduled) 0.45))
     (should (null (cadr scheduled)))
     (should (functionp (nth 2 scheduled)))))
+
+(ert-deftest emacs-srs-trainer-test-answer-feedback-waits-before-continuation ()
+  (let ((noninteractive nil)
+        (emacs-srs-trainer--answer-feedback-clear-time 10.5)
+        waited)
+    (cl-letf (((symbol-function 'float-time) (lambda () 10.0))
+              ((symbol-function 'sit-for)
+               (lambda (seconds)
+                 (setq waited seconds)
+                 t)))
+      (emacs-srs-trainer--answer-feedback-wait-before-continuation))
+    (should (equal waited 0.5))))
 
 (ert-deftest emacs-srs-trainer-test-answer-capture-redacts-only-wrong-typed-char ()
   (let ((unread-command-events
