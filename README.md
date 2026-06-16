@@ -72,7 +72,13 @@ Then load it:
 
 ## Usage
 
-Start a due review session:
+Open the welcome dashboard:
+
+```text
+M-x emacs-srs-trainer
+```
+
+Start a due review session directly:
 
 ```text
 M-x emacs-srs-trainer-review

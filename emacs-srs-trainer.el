@@ -893,6 +893,16 @@ of cards reviewed in this session."
             :practice practice :limit session-limit))))
 
 ;;;###autoload
+(defun emacs-srs-trainer ()
+  "Open the Emacs SRS Trainer welcome dashboard."
+  (interactive)
+  (let ((buffer (get-buffer-create emacs-srs-trainer-review-buffer-name)))
+    (emacs-srs-trainer--render-welcome buffer)
+    (unless noninteractive
+      (pop-to-buffer buffer))
+    buffer))
+
+;;;###autoload
 (defun emacs-srs-trainer-review (&optional limit)
   "Review due cards from the Emacs Tutorial deck.
 

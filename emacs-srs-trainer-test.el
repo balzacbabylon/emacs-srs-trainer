@@ -536,6 +536,20 @@
                             (plist-get card :canonical-answer))
                      :test #'string=))))
 
+(ert-deftest emacs-srs-trainer-test-main-command-renders-welcome ()
+  (let ((emacs-srs-trainer-review-buffer-name
+         " *emacs-srs-trainer-main-test*"))
+    (unwind-protect
+        (let ((buffer (emacs-srs-trainer)))
+          (should (buffer-live-p buffer))
+          (with-current-buffer buffer
+            (should (derived-mode-p 'emacs-srs-trainer-welcome-mode))
+            (should (string-match-p "Emacs SRS Trainer" (buffer-string)))
+            (should (string-match-p "Available decks" (buffer-string)))
+            (goto-char (point-min))
+            (should (next-button (point-min)))))
+      (ignore-errors (kill-buffer emacs-srs-trainer-review-buffer-name)))))
+
 (ert-deftest emacs-srs-trainer-test-review-loop-smoke ()
   (let* ((dir (make-temp-file "emacs-srs-trainer-review-" t))
          (file (expand-file-name "state.el" dir))
