@@ -62,7 +62,7 @@ previous result screen.  Set this to 0 to disable debouncing."
 
 When an answer is completed, the echo area briefly flashes the typed
 sequence green for correct answers or the first wrong event red for
-incorrect answers.  Set this to 0 to disable the pause."
+incorrect answers.  Set this to 0 to leave the echo area unchanged."
   :type 'number
   :group 'emacs-srs-trainer)
 
@@ -103,6 +103,9 @@ be overridden for one command with a numeric prefix argument."
 
 (defvar emacs-srs-trainer--last-continuation-event nil
   "Raw event most recently used as a review continuation key.")
+
+(defvar emacs-srs-trainer--answer-feedback-clear-timer nil
+  "Timer used to clear answer feedback from the echo area.")
 
 (define-derived-mode emacs-srs-trainer-review-mode fundamental-mode "Emacs-SRS"
   "Major mode for the Emacs SRS review buffer."
@@ -174,6 +177,7 @@ be overridden for one command with a numeric prefix argument."
 
 (defun emacs-srs-trainer--answer-feedback-message (tokens)
   "Show TOKENS as the current answer in the echo area."
+  (emacs-srs-trainer--answer-feedback-cancel-clear-timer)
   (message "%s"
            (concat "Answer: "
                    (emacs-srs-trainer-display-key-tokens tokens))))
@@ -187,13 +191,25 @@ be overridden for one command with a numeric prefix argument."
               (emacs-srs-trainer--answer-display-tokens events))
              " "))))
 
-(defun emacs-srs-trainer--answer-feedback-pause ()
-  "Pause after final answer feedback, then clear the echo area."
+(defun emacs-srs-trainer--answer-feedback-cancel-clear-timer ()
+  "Cancel any pending answer feedback clear timer."
+  (when (timerp emacs-srs-trainer--answer-feedback-clear-timer)
+    (cancel-timer emacs-srs-trainer--answer-feedback-clear-timer))
+  (setq emacs-srs-trainer--answer-feedback-clear-timer nil))
+
+(defun emacs-srs-trainer--answer-feedback-schedule-clear ()
+  "Schedule final answer feedback to clear without blocking review flow."
+  (emacs-srs-trainer--answer-feedback-cancel-clear-timer)
   (when (and (not noninteractive)
              emacs-srs-trainer-answer-feedback-delay-seconds
              (> emacs-srs-trainer-answer-feedback-delay-seconds 0))
-    (sit-for emacs-srs-trainer-answer-feedback-delay-seconds)
-    (message nil)))
+    (setq emacs-srs-trainer--answer-feedback-clear-timer
+          (run-at-time
+           emacs-srs-trainer-answer-feedback-delay-seconds
+           nil
+           (lambda ()
+             (setq emacs-srs-trainer--answer-feedback-clear-timer nil)
+             (message nil))))))
 
 (defun emacs-srs-trainer--echo-answer-progress (events)
   "Echo current answer EVENTS without final grading feedback."
@@ -206,7 +222,7 @@ be overridden for one command with a numeric prefix argument."
    (emacs-srs-trainer--propertize-answer-tokens
     (emacs-srs-trainer--answer-display-tokens events)
     'emacs-srs-trainer-correct-face))
-  (emacs-srs-trainer--answer-feedback-pause))
+  (emacs-srs-trainer--answer-feedback-schedule-clear))
 
 (defun emacs-srs-trainer--echo-incorrect-answer (previous-events event)
   "Flash EVENT as the first incorrect input after PREVIOUS-EVENTS."
@@ -216,7 +232,7 @@ be overridden for one command with a numeric prefix argument."
                   (emacs-srs-trainer--answer-display-tokens (vector event))
                   'emacs-srs-trainer-incorrect-face))))
     (emacs-srs-trainer--answer-feedback-message tokens)
-    (emacs-srs-trainer--answer-feedback-pause)))
+    (emacs-srs-trainer--answer-feedback-schedule-clear)))
 
 (defun emacs-srs-trainer--read-answer-key-sequence-dispatch ()
   "Read one complete Emacs key sequence without card-aware early grading."
