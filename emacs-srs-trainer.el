@@ -76,6 +76,16 @@ be overridden for one command with a numeric prefix argument."
                  (integer :tag "Cards per review session"))
   :group 'emacs-srs-trainer)
 
+(defcustom emacs-srs-trainer-learn-ahead-limit-minutes 20
+  "Minutes to look ahead for learning cards when nothing else is due.
+
+This mirrors Anki's Learn Ahead behavior: learning cards due within this
+window are shown early only when the selected deck has no regular due
+cards left to study.  Set this to 0 to always wait for the full learning
+delay."
+  :type 'number
+  :group 'emacs-srs-trainer)
+
 (defface emacs-srs-trainer-correct-face
   '((t :foreground "green3" :weight bold))
   "Face used for correct answers."
@@ -127,12 +137,35 @@ Each entry is (DECK-NAME . PLIST).  Supported properties are
   (setq-local buffer-read-only t)
   (setq-local truncate-lines nil))
 
-(define-derived-mode emacs-srs-trainer-welcome-mode special-mode "Emacs-SRS-Welcome"
-  "Major mode for the Emacs SRS Trainer welcome buffer."
+(define-derived-mode emacs-srs-trainer-mode special-mode "Emacs-SRS"
+  "Major mode for the Emacs SRS Trainer dashboard."
   (setq-local truncate-lines nil))
 
-(define-key emacs-srs-trainer-welcome-mode-map (kbd "TAB") #'forward-button)
-(define-key emacs-srs-trainer-welcome-mode-map (kbd "<backtab>") #'backward-button)
+(define-obsolete-function-alias
+  'emacs-srs-trainer-welcome-mode
+  #'emacs-srs-trainer-mode
+  "0.1.0")
+
+(define-key emacs-srs-trainer-mode-map (kbd "TAB") #'forward-button)
+(define-key emacs-srs-trainer-mode-map (kbd "<backtab>") #'backward-button)
+(define-key emacs-srs-trainer-mode-map (kbd "r")
+            #'emacs-srs-trainer-review-deck-at-point)
+(define-key emacs-srs-trainer-mode-map (kbd "C-c C-r")
+            #'emacs-srs-trainer-review-deck-at-point)
+(define-key emacs-srs-trainer-mode-map (kbd "m")
+            #'emacs-srs-trainer-cycle-deck-review-mode-at-point)
+(define-key emacs-srs-trainer-mode-map (kbd "C-c C-t")
+            #'emacs-srs-trainer-cycle-deck-review-mode-at-point)
+(define-key emacs-srs-trainer-mode-map (kbd "g")
+            #'emacs-srs-trainer-refresh)
+(define-key emacs-srs-trainer-mode-map (kbd "C-c C-g")
+            #'emacs-srs-trainer-refresh)
+(define-key emacs-srs-trainer-mode-map (kbd "q") #'quit-window)
+(define-key emacs-srs-trainer-mode-map (kbd "C-c C-q") #'quit-window)
+
+(define-key emacs-srs-trainer-review-mode-map (kbd "C-c C-m")
+            #'emacs-srs-trainer-refresh)
+(define-key emacs-srs-trainer-review-mode-map (kbd "C-c C-q") #'quit-window)
 
 (defun emacs-srs-trainer--prefix-argument-command-p (sequence)
   "Return non-nil when SEQUENCE invokes a prefix-argument command."
@@ -565,6 +598,68 @@ The result is one of `new', `learning', or `review'."
   (list :card-type (emacs-srs-trainer-deck-card-type deck)
         :reverse-mode (emacs-srs-trainer-deck-reverse-mode deck)))
 
+(defconst emacs-srs-trainer--deck-review-mode-cycle
+  '((main passive "M" "Main")
+    (reverse passive "RP" "Reverse passive")
+    (reverse active "RA" "Reverse active"))
+  "Deck study modes in dashboard cycling order.")
+
+(defun emacs-srs-trainer--deck-review-mode-match-p (deck mode)
+  "Return non-nil when DECK is currently using MODE."
+  (let ((card-type (nth 0 mode))
+        (reverse-mode (nth 1 mode)))
+    (and (eq (emacs-srs-trainer-deck-card-type deck) card-type)
+         (or (eq card-type 'main)
+             (eq (emacs-srs-trainer-deck-reverse-mode deck)
+                 reverse-mode)))))
+
+(defun emacs-srs-trainer--deck-review-mode-index (deck)
+  "Return the index of DECK's current study mode."
+  (or (cl-position-if
+       (lambda (mode)
+         (emacs-srs-trainer--deck-review-mode-match-p deck mode))
+       emacs-srs-trainer--deck-review-mode-cycle)
+      0))
+
+(defun emacs-srs-trainer--deck-review-mode (deck)
+  "Return DECK's current study mode spec."
+  (nth (emacs-srs-trainer--deck-review-mode-index deck)
+       emacs-srs-trainer--deck-review-mode-cycle))
+
+(defun emacs-srs-trainer-deck-review-mode-abbreviation (deck)
+  "Return the compact dashboard abbreviation for DECK's study mode."
+  (nth 2 (emacs-srs-trainer--deck-review-mode deck)))
+
+(defun emacs-srs-trainer-deck-review-mode-label (deck)
+  "Return the user-facing label for DECK's study mode."
+  (nth 3 (emacs-srs-trainer--deck-review-mode deck)))
+
+(defun emacs-srs-trainer-cycle-deck-review-mode (deck &optional backward)
+  "Cycle DECK to the next study mode.
+
+With BACKWARD non-nil, cycle in the opposite direction.  Return the new
+mode spec."
+  (interactive
+   (list (completing-read "Deck: "
+                          (emacs-srs-trainer-deck-names)
+                          nil t nil nil emacs-srs-trainer-default-deck)
+         current-prefix-arg))
+  (let* ((modes emacs-srs-trainer--deck-review-mode-cycle)
+         (index (emacs-srs-trainer--deck-review-mode-index deck))
+         (next-index (mod (+ index (if backward -1 1))
+                          (length modes)))
+         (mode (nth next-index modes)))
+    (emacs-srs-trainer-set-deck-review-options
+     deck
+     (nth 0 mode)
+     (nth 1 mode))
+    (when (called-interactively-p 'interactive)
+      (message "%s mode: %s [%s]"
+               deck
+               (nth 3 mode)
+               (nth 2 mode)))
+    mode))
+
 (defun emacs-srs-trainer--review-cards-for-deck (deck)
   "Return cards for DECK using its selected card view."
   (let ((cards (emacs-srs-trainer-deck-by-name deck)))
@@ -598,18 +693,51 @@ The result is one of `new', `learning', or `review'."
                      0)))
   counts)
 
+(defun emacs-srs-trainer--learn-ahead-limit-seconds ()
+  "Return the configured learn-ahead limit in seconds."
+  (* 60 (max 0 emacs-srs-trainer-learn-ahead-limit-minutes)))
+
+(defun emacs-srs-trainer--learn-ahead-card-p (card-state now)
+  "Return non-nil when CARD-STATE is a learning card due soon."
+  (let ((due (plist-get card-state :due))
+        (limit (emacs-srs-trainer--learn-ahead-limit-seconds)))
+    (and (> limit 0)
+         (eq (emacs-srs-trainer-scheduler-card-type card-state)
+             'learning)
+         due
+         (> due now)
+         (<= due (+ now limit)))))
+
+(defun emacs-srs-trainer--studyable-cards (cards state now)
+  "Return CARDS studyable at NOW using Anki-style learn ahead.
+
+Cards normally due at NOW are returned first.  If none are normally due,
+return learning cards due within
+`emacs-srs-trainer-learn-ahead-limit-minutes'."
+  (let ((regular-due nil)
+        (learn-ahead nil))
+    (dolist (card cards)
+      (let ((card-state (emacs-srs-trainer--state-for-card card state now)))
+        (cond
+         ((emacs-srs-trainer-scheduler-due-p card-state now)
+          (push card regular-due))
+         ((emacs-srs-trainer--learn-ahead-card-p card-state now)
+          (push card learn-ahead)))))
+    (nreverse (or regular-due learn-ahead))))
+
 (defun emacs-srs-trainer--queue-counts-for-cards (cards state now &optional due-only)
   "Return queue counts for CARDS using STATE at NOW.
 
 When DUE-ONLY is non-nil, count only cards due at NOW."
   (let ((counts (emacs-srs-trainer--empty-queue-counts)))
-    (dolist (card cards counts)
+    (dolist (card (if due-only
+                      (emacs-srs-trainer--studyable-cards cards state now)
+                    cards)
+                  counts)
       (let* ((card-state (emacs-srs-trainer--state-for-card card state now))
              (type (emacs-srs-trainer-scheduler-card-type card-state)))
-        (when (or (not due-only)
-                  (emacs-srs-trainer-scheduler-due-p card-state now))
-          (setq counts
-                (emacs-srs-trainer--increment-queue-count counts type)))))))
+        (setq counts
+              (emacs-srs-trainer--increment-queue-count counts type))))))
 
 (defun emacs-srs-trainer-format-queue-counts (counts)
   "Format Anki-style queue COUNTS for display."
@@ -755,15 +883,19 @@ return cards whose topic matches it.  DECK defaults to
          (cards (emacs-srs-trainer--review-cards-for-deck
                  (or deck emacs-srs-trainer-default-deck))))
     (emacs-srs-trainer--limit-cards
-     (cl-remove-if-not
-      (lambda (card)
-        (and (or (null topic)
-                 (string= (emacs-srs-trainer-card-topic card) topic))
-             (or all
-                 (emacs-srs-trainer-scheduler-due-p
-                  (emacs-srs-trainer--state-for-card card loaded-state timestamp)
-                  timestamp))))
-      (emacs-srs-trainer--sort-cards-by-queue cards loaded-state timestamp))
+     (let* ((matching-cards
+             (cl-remove-if-not
+              (lambda (card)
+                (or (null topic)
+                    (string= (emacs-srs-trainer-card-topic card) topic)))
+              cards))
+            (ordered-cards
+             (emacs-srs-trainer--sort-cards-by-queue
+              matching-cards loaded-state timestamp)))
+       (if all
+           ordered-cards
+         (emacs-srs-trainer--studyable-cards
+          ordered-cards loaded-state timestamp)))
      limit)))
 
 (defun emacs-srs-trainer--render-question
@@ -912,51 +1044,70 @@ return cards whose topic matches it.  DECK defaults to
     ('incorrect "Redo")
     (_ "Unknown")))
 
-(defun emacs-srs-trainer--deck-option-selected-p
-    (deck card-type &optional reverse-mode)
-  "Return non-nil when DECK is using CARD-TYPE and REVERSE-MODE."
-  (and (eq (emacs-srs-trainer-deck-card-type deck) card-type)
-       (or (not (eq card-type 'reverse))
-           (eq (emacs-srs-trainer-deck-reverse-mode deck)
-               reverse-mode))))
+(defun emacs-srs-trainer-deck-at-point ()
+  "Return the dashboard deck at point, or nil."
+  (or (when-let* ((button (button-at (point))))
+        (button-get button 'deck-name))
+      (get-text-property (point) 'deck-name)
+      (get-text-property (line-beginning-position) 'deck-name)))
 
-(defun emacs-srs-trainer--insert-deck-option-button
-    (deck-name label card-type &optional reverse-mode)
-  "Insert a welcome-screen option button for DECK-NAME."
-  (let ((selected (emacs-srs-trainer--deck-option-selected-p
-                   deck-name card-type reverse-mode)))
-    (insert-text-button
-     (if selected
-         (format "[%s]" label)
-       (format " %s " label))
-     'deck-name deck-name
-     'card-type card-type
-     'reverse-mode reverse-mode
-     'follow-link t
-     'face (if selected 'bold 'button)
-     'help-echo "RET/mouse-1: select this review mode"
-     'action (lambda (button)
-               (emacs-srs-trainer-set-deck-review-options
-                (button-get button 'deck-name)
-                (button-get button 'card-type)
-                (button-get button 'reverse-mode))
-               (emacs-srs-trainer--render-welcome (current-buffer))))))
+(defun emacs-srs-trainer-refresh (&optional buffer)
+  "Refresh the Emacs SRS Trainer dashboard in BUFFER."
+  (interactive)
+  (let ((target (or buffer
+                    (if (derived-mode-p 'emacs-srs-trainer-mode
+                                        'emacs-srs-trainer-review-mode)
+                        (current-buffer)
+                      (get-buffer-create
+                       emacs-srs-trainer-review-buffer-name)))))
+    (emacs-srs-trainer--render-welcome target)
+    (unless noninteractive
+      (pop-to-buffer target))
+    target))
+
+(defun emacs-srs-trainer-cycle-deck-review-mode-at-point (&optional backward)
+  "Cycle the study mode for the deck at point.
+
+With BACKWARD non-nil, cycle in the opposite direction."
+  (interactive "P")
+  (if-let* ((deck-name (emacs-srs-trainer-deck-at-point)))
+      (progn
+        (emacs-srs-trainer-cycle-deck-review-mode deck-name backward)
+        (emacs-srs-trainer-refresh (current-buffer)))
+    (user-error "No deck at point")))
+
+(defun emacs-srs-trainer-review-deck-at-point (&optional prefix)
+  "Review the deck at point.
+
+PREFIX has the same meaning as in `emacs-srs-trainer-review-deck'."
+  (interactive "P")
+  (if-let* ((deck-name (emacs-srs-trainer-deck-at-point)))
+      (emacs-srs-trainer-review-deck deck-name prefix)
+    (user-error "No deck at point")))
+
+(defun emacs-srs-trainer--insert-deck-mode-button (deck-name)
+  "Insert the compact dashboard study-mode button for DECK-NAME."
+  (insert-text-button
+   (format "[%s]"
+           (emacs-srs-trainer-deck-review-mode-abbreviation deck-name))
+   'deck-name deck-name
+   'deck-mode-button t
+   'follow-link t
+   'face 'bold
+   'help-echo (format "RET/mouse-1: cycle study mode; current: %s"
+                      (emacs-srs-trainer-deck-review-mode-label deck-name))
+   'action (lambda (button)
+             (emacs-srs-trainer-cycle-deck-review-mode
+              (button-get button 'deck-name))
+             (emacs-srs-trainer-refresh (current-buffer)))))
 
 (defun emacs-srs-trainer--insert-deck-button (deck-name state now)
   "Insert a welcome-screen button for DECK-NAME using STATE at NOW."
   (let* ((cards (emacs-srs-trainer--review-cards-for-deck deck-name))
          (due-counts (emacs-srs-trainer-due-counts nil now state deck-name))
          (state-counts (emacs-srs-trainer-queue-counts nil now state nil deck-name))
-         (due-total (or (plist-get due-counts :total) 0)))
-    (emacs-srs-trainer--insert-deck-option-button
-     deck-name "Main" 'main)
-    (insert " ")
-    (emacs-srs-trainer--insert-deck-option-button
-     deck-name "Reverse passive" 'reverse 'passive)
-    (insert " ")
-    (emacs-srs-trainer--insert-deck-option-button
-     deck-name "Reverse active" 'reverse 'active)
-    (insert "  ")
+         (due-total (or (plist-get due-counts :total) 0))
+         (start (point)))
     (insert-text-button
      deck-name
      'deck-name deck-name
@@ -965,10 +1116,13 @@ return cards whose topic matches it.  DECK defaults to
      'action (lambda (button)
                (emacs-srs-trainer-review-deck
                 (button-get button 'deck-name))))
+    (insert " ")
+    (emacs-srs-trainer--insert-deck-mode-button deck-name)
     (insert (format "    Due: %d    Cards: %d    %s\n"
                     due-total
                     (length cards)
-                    (emacs-srs-trainer-format-queue-counts state-counts)))))
+                    (emacs-srs-trainer-format-queue-counts state-counts)))
+    (add-text-properties start (point) (list 'deck-name deck-name))))
 
 (defun emacs-srs-trainer--render-welcome
     (buffer &optional reviewed correct-count state deck-name)
@@ -979,7 +1133,7 @@ return cards whose topic matches it.  DECK defaults to
     (with-current-buffer buffer
       (let ((inhibit-read-only t))
         (erase-buffer)
-        (emacs-srs-trainer-welcome-mode)
+        (emacs-srs-trainer-mode)
         (insert "Emacs SRS Trainer\n")
         (insert "=================\n\n")
         (when reviewed
@@ -1018,8 +1172,8 @@ return cards whose topic matches it.  DECK defaults to
                                              (- due now)))))))
                 (insert "\n")))
           (insert "No cards have been reviewed yet.\n"))
-        (insert "\nTAB moves between buttons. RET toggles a deck mode or opens a deck. ")
-        (insert "Use ordinary Emacs window commands to leave this buffer.\n")
+        (insert "\nKeys: r/C-c C-r review deck, m/C-c C-t cycle mode, ")
+        (insert "g/C-c C-g refresh, q/C-c C-q quit.\n")
         (goto-char (point-min))))))
 
 (defun emacs-srs-trainer--render-result

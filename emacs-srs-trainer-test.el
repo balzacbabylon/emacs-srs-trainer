@@ -604,6 +604,77 @@
                 t nil nil nil emacs-srs-trainer-info-deck-name 3)))
     (should (= (length cards) 3))))
 
+(ert-deftest emacs-srs-trainer-test-learn-ahead-includes-learning-card ()
+  (let* ((deck-name "Synthetic Learn Ahead")
+         (card (emacs-srs-trainer-test--synthetic-deck-card
+                "synthetic-learn-ahead" deck-name "C-f"))
+         (now 1000.0)
+         (learning-state
+          (emacs-srs-trainer-scheduler-review
+           (emacs-srs-trainer-scheduler-new-state now) nil now))
+         (state (emacs-srs-trainer-storage-put-card-state
+                 "synthetic-learn-ahead"
+                 (plist-put learning-state :due (+ now (* 10 60)))
+                 (emacs-srs-trainer-storage-empty-state)))
+         (emacs-srs-trainer-decks nil)
+         (emacs-srs-trainer-learn-ahead-limit-minutes 20))
+    (emacs-srs-trainer-register-deck deck-name (list card))
+    (let ((due (emacs-srs-trainer-due-cards nil nil now state deck-name)))
+      (should (= (length due) 1))
+      (should (string= (emacs-srs-trainer-card-id (car due))
+                       "synthetic-learn-ahead")))
+    (let ((counts (emacs-srs-trainer-due-counts nil now state deck-name)))
+      (should (= (plist-get counts :learning) 1))
+      (should (= (plist-get counts :total) 1)))))
+
+(ert-deftest emacs-srs-trainer-test-learn-ahead-respects-limit ()
+  (let* ((deck-name "Synthetic Learn Ahead Outside")
+         (card (emacs-srs-trainer-test--synthetic-deck-card
+                "synthetic-learn-ahead-outside" deck-name "C-f"))
+         (now 1000.0)
+         (learning-state
+          (emacs-srs-trainer-scheduler-review
+           (emacs-srs-trainer-scheduler-new-state now) nil now))
+         (state (emacs-srs-trainer-storage-put-card-state
+                 "synthetic-learn-ahead-outside"
+                 (plist-put learning-state :due (+ now (* 21 60)))
+                 (emacs-srs-trainer-storage-empty-state)))
+         (emacs-srs-trainer-decks nil)
+         (emacs-srs-trainer-learn-ahead-limit-minutes 20))
+    (emacs-srs-trainer-register-deck deck-name (list card))
+    (should-not (emacs-srs-trainer-due-cards nil nil now state deck-name))
+    (should (= (plist-get
+                (emacs-srs-trainer-due-counts nil now state deck-name)
+                :total)
+               0))))
+
+(ert-deftest emacs-srs-trainer-test-learn-ahead-waits-behind-due-cards ()
+  (let* ((deck-name "Synthetic Learn Ahead With Due")
+         (learning-card (emacs-srs-trainer-test--synthetic-deck-card
+                         "synthetic-learn-ahead-wait" deck-name "C-f"))
+         (new-card (emacs-srs-trainer-test--synthetic-deck-card
+                    "synthetic-learn-ahead-new" deck-name "C-b"))
+         (now 1000.0)
+         (learning-state
+          (emacs-srs-trainer-scheduler-review
+           (emacs-srs-trainer-scheduler-new-state now) nil now))
+         (state (emacs-srs-trainer-storage-put-card-state
+                 "synthetic-learn-ahead-wait"
+                 (plist-put learning-state :due (+ now (* 10 60)))
+                 (emacs-srs-trainer-storage-empty-state)))
+         (emacs-srs-trainer-decks nil)
+         (emacs-srs-trainer-shuffle-cards-within-queue nil)
+         (emacs-srs-trainer-learn-ahead-limit-minutes 20))
+    (emacs-srs-trainer-register-deck deck-name (list learning-card new-card))
+    (let ((due (emacs-srs-trainer-due-cards nil nil now state deck-name)))
+      (should (= (length due) 1))
+      (should (string= (emacs-srs-trainer-card-id (car due))
+                       "synthetic-learn-ahead-new")))
+    (let ((counts (emacs-srs-trainer-due-counts nil now state deck-name)))
+      (should (= (plist-get counts :new) 1))
+      (should (= (plist-get counts :learning) 0))
+      (should (= (plist-get counts :total) 1)))))
+
 (ert-deftest emacs-srs-trainer-test-prefix-card-generation ()
   (let ((a (emacs-srs-trainer-deck-generate-prefix-cards))
         (b (emacs-srs-trainer-deck-generate-prefix-cards)))
@@ -620,12 +691,25 @@
         (let ((buffer (emacs-srs-trainer)))
           (should (buffer-live-p buffer))
           (with-current-buffer buffer
-            (should (derived-mode-p 'emacs-srs-trainer-welcome-mode))
+            (should (derived-mode-p 'emacs-srs-trainer-mode))
             (should (string-match-p "Emacs SRS Trainer" (buffer-string)))
             (should (string-match-p "Available decks" (buffer-string)))
+            (should (string-match-p "C-c C-r" (buffer-string)))
             (goto-char (point-min))
             (should (next-button (point-min)))))
       (ignore-errors (kill-buffer emacs-srs-trainer-review-buffer-name)))))
+
+(ert-deftest emacs-srs-trainer-test-major-mode-keybindings ()
+  (should (eq (lookup-key emacs-srs-trainer-mode-map (kbd "C-c C-r"))
+              #'emacs-srs-trainer-review-deck-at-point))
+  (should (eq (lookup-key emacs-srs-trainer-mode-map (kbd "C-c C-t"))
+              #'emacs-srs-trainer-cycle-deck-review-mode-at-point))
+  (should (eq (lookup-key emacs-srs-trainer-mode-map (kbd "C-c C-g"))
+              #'emacs-srs-trainer-refresh))
+  (should (eq (lookup-key emacs-srs-trainer-mode-map (kbd "C-c C-q"))
+              #'quit-window))
+  (should (eq (lookup-key emacs-srs-trainer-review-mode-map (kbd "C-c C-m"))
+              #'emacs-srs-trainer-refresh)))
 
 (ert-deftest emacs-srs-trainer-test-welcome-deck-mode-toggle ()
   (let* ((deck-name "Synthetic Welcome Toggle")
@@ -641,23 +725,31 @@
         (progn
           (emacs-srs-trainer-register-deck deck-name (list card))
           (emacs-srs-trainer--render-welcome buffer)
-          (let ((button (emacs-srs-trainer-test--find-button
-                         buffer
-                         (lambda (candidate)
-                           (and (eq (button-get candidate 'card-type)
-                                    'reverse)
-                                (eq (button-get candidate 'reverse-mode)
-                                    'active))))))
-            (should button)
-            (with-current-buffer buffer
-              (funcall (button-get button 'action) button))
+          (with-current-buffer buffer
+            (should (string-match-p
+                     (regexp-quote "Synthetic Welcome Toggle [M]")
+                     (buffer-string)))
+            (should-not (string-match-p "Reverse passive"
+                                        (buffer-string)))
+            (goto-char (point-min))
+            (search-forward deck-name)
+            (should (string= (emacs-srs-trainer-deck-at-point)
+                             deck-name))
+            (emacs-srs-trainer-cycle-deck-review-mode-at-point)
             (should (eq (emacs-srs-trainer-deck-card-type deck-name)
                         'reverse))
             (should (eq (emacs-srs-trainer-deck-reverse-mode deck-name)
+                        'passive))
+            (should (string-match-p
+                     (regexp-quote "Synthetic Welcome Toggle [RP]")
+                     (buffer-string)))
+            (search-forward deck-name)
+            (emacs-srs-trainer-cycle-deck-review-mode-at-point)
+            (should (eq (emacs-srs-trainer-deck-reverse-mode deck-name)
                         'active))
-            (with-current-buffer buffer
-              (should (string-match-p "\\[Reverse active\\]"
-                                      (buffer-string))))))
+            (should (string-match-p
+                     (regexp-quote "Synthetic Welcome Toggle [RA]")
+                     (buffer-string)))))
       (ignore-errors (kill-buffer buffer))
       (ignore-errors (delete-directory dir t)))))
 
@@ -800,6 +892,7 @@
          (emacs-srs-trainer-decks nil)
          (emacs-srs-trainer-default-deck deck-name)
          (emacs-srs-trainer-shuffle-cards-within-queue nil)
+         (emacs-srs-trainer-learn-ahead-limit-minutes 0)
          (emacs-srs-trainer-storage-file file)
          (emacs-srs-trainer-read-answer-function (lambda () "C-f"))
          (emacs-srs-trainer-read-continuation-function (lambda () 'next)))
