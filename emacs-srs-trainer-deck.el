@@ -106,25 +106,45 @@ KEY may be a string accepted by `kbd' or a vector returned by
   "Return non-nil when TOKEN is part of typed text for display."
   (string-match-p (rx bos (any alnum "-") eos) token))
 
+(defun emacs-srs-trainer-deck--digit-display-token-p (token)
+  "Return non-nil when TOKEN is one digit for display compaction."
+  (string-match-p (rx bos digit eos) token))
+
 (defun emacs-srs-trainer-deck--compact-display-tokens (tokens)
-  "Compact adjacent typed-text TOKENS for display."
-  (let ((result nil)
-        (run nil))
-    (dolist (token tokens)
-      (if (emacs-srs-trainer-deck--compact-display-token-p token)
-          (push token run)
-        (when run
-          (push (if (cdr run)
-                    (mapconcat #'identity (nreverse run) "")
-                  (car run))
-                result)
-          (setq run nil))
-        (push token result)))
-    (when run
-      (push (if (cdr run)
-                (mapconcat #'identity (nreverse run) "")
-              (car run))
-            result))
+  "Compact prompt-like TOKENS for display.
+
+Only text typed after `M-x' and consecutive digits after `C-u' are
+compacted.  Ordinary keymap sequences keep their spaces, so `C-x 5 0'
+and Org export dispatcher keys such as `C-c C-e l l' stay visually
+faithful to Emacs and Org documentation."
+  (let ((remaining tokens)
+        (result nil))
+    (while remaining
+      (let ((token (pop remaining)))
+        (cond
+         ((string= token "M-x")
+          (push token result)
+          (let ((run nil))
+            (while (and remaining
+                        (not (string= (car remaining) "RET"))
+                        (emacs-srs-trainer-deck--compact-display-token-p
+                         (car remaining)))
+              (push (pop remaining) run))
+            (when run
+              (push (mapconcat #'identity (nreverse run) "")
+                    result))))
+         ((string= token "C-u")
+          (push token result)
+          (let ((run nil))
+            (while (and remaining
+                        (emacs-srs-trainer-deck--digit-display-token-p
+                         (car remaining)))
+              (push (pop remaining) run))
+            (when run
+              (push (mapconcat #'identity (nreverse run) "")
+                    result))))
+         (t
+          (push token result)))))
     (nreverse result)))
 
 (defun emacs-srs-trainer-display-key-tokens (tokens)

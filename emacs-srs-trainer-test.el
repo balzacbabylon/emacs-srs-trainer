@@ -256,6 +256,18 @@
   (should (string= (emacs-srs-trainer-display-key "g * RET")
                    "g * RET")))
 
+(ert-deftest emacs-srs-trainer-test-key-display-preserves-keymap-spaces ()
+  (should (string= (emacs-srs-trainer-display-key "C-x 5 0")
+                   "C-x 5 0"))
+  (should (string= (emacs-srs-trainer-display-key "C-x n s")
+                   "C-x n s"))
+  (should (string= (emacs-srs-trainer-display-key "C-c C-e h h")
+                   "C-c C-e h h"))
+  (should (string= (emacs-srs-trainer-display-key "C-c C-e l l")
+                   "C-c C-e l l"))
+  (should (string= (emacs-srs-trainer-display-key "C-c C-e ll")
+                   "C-c C-e l l")))
+
 (ert-deftest emacs-srs-trainer-test-reverse-card-generation ()
   (let* ((card (emacs-srs-trainer-test--synthetic-deck-card
                 "synthetic-reverse" "Synthetic Reverse" "C-f"))
