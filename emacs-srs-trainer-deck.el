@@ -91,16 +91,55 @@ unchanged and normalize the key name inside angle brackets."
              (split-string description " " t)
              " "))
 
+(defun emacs-srs-trainer-deck--extended-command-token-p (token)
+  "Return non-nil when TOKEN is part of an extended-command name."
+  (and (not (member token '("RET" "SPC")))
+       (string-match-p (rx bos (any alnum "-") eos) token)))
+
+(defun emacs-srs-trainer-deck--normalize-extended-command-spaces
+    (description)
+  "Interpret spaces inside M-x command names as dashes in DESCRIPTION.
+
+Emacs binds SPC in command-name completion to
+`minibuffer-complete-word', and command completion treats spaces and
+dashes as word delimiters.  Mirror that behavior for named-command
+answers so typing \"replace string\" matches `replace-string'."
+  (let ((tokens (split-string description " " t))
+        (result nil)
+        (reading-command nil)
+        (seen-command-token nil))
+    (dolist (token tokens)
+      (cond
+       ((string= token "M-x")
+        (setq reading-command t
+              seen-command-token nil)
+        (push token result))
+       ((and reading-command (string= token "RET"))
+        (setq reading-command nil
+              seen-command-token nil)
+        (push token result))
+       ((and reading-command
+             seen-command-token
+             (string= token "SPC"))
+        (push "-" result))
+       (t
+        (when (and reading-command
+                   (emacs-srs-trainer-deck--extended-command-token-p token))
+          (setq seen-command-token t))
+        (push token result))))
+    (mapconcat #'identity (nreverse result) " ")))
+
 (defun emacs-srs-trainer-normalize-key (key)
   "Return canonical Emacs notation for KEY.
 
 KEY may be a string accepted by `kbd' or a vector returned by
 `read-key-sequence-vector'."
-  (emacs-srs-trainer-canonicalize-key-description
-   (cond
-    ((vectorp key) (key-description key))
-    ((stringp key) (key-description (kbd key)))
-    (t (error "Unsupported key value: %S" key)))))
+  (emacs-srs-trainer-deck--normalize-extended-command-spaces
+   (emacs-srs-trainer-canonicalize-key-description
+    (cond
+     ((vectorp key) (key-description key))
+     ((stringp key) (key-description (kbd key)))
+     (t (error "Unsupported key value: %S" key))))))
 
 (defun emacs-srs-trainer-deck--compact-display-token-p (token)
   "Return non-nil when TOKEN is part of typed text for display."

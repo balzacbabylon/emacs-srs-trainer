@@ -238,6 +238,12 @@
   (should (string= (emacs-srs-trainer-normalize-key (kbd "C-f")) "C-f"))
   (should (string= (emacs-srs-trainer-normalize-key "<ESC> f") "M-f"))
   (should (string= (emacs-srs-trainer-normalize-key "C-<SPC>") "C-SPC"))
+  (should (string= (emacs-srs-trainer-normalize-key
+                    "M-x replace SPC string RET")
+                   "M-x r e p l a c e - s t r i n g RET"))
+  (should (string= (emacs-srs-trainer-normalize-key
+                    "C-u M-x org SPC reload RET")
+                   "C-u M-x o r g - r e l o a d RET"))
   (should (string= (emacs-srs-trainer-normalize-key "<Return>") "RET"))
   (should (string= (emacs-srs-trainer-normalize-key [return]) "RET"))
   (should (string= (emacs-srs-trainer-normalize-key [M-return]) "M-RET"))
@@ -350,17 +356,21 @@
 
 (ert-deftest emacs-srs-trainer-test-extended-command-card-grading ()
   (dolist (case '(("tutorial-replace-string" "M-x replace-string RET")
+                  ("tutorial-replace-string" "M-x replace SPC string RET"
+                   "M-x replace-string RET")
                   ("info-apropos" "M-x info-apropos RET")
                   ("org-version" "M-x org-version RET")
+                  ("org-version" "M-x org SPC version RET"
+                   "M-x org-version RET")
                   ("org-reload" "C-u M-x org-reload RET")))
-    (pcase-let ((`(,card-id ,answer) case))
+    (pcase-let ((`(,card-id ,answer ,display-answer) case))
       (let* ((card (emacs-srs-trainer-test--card card-id))
              (correct-grade (emacs-srs-trainer-grade-answer card answer))
              (precursor-grade (emacs-srs-trainer-grade-answer card "M-x")))
         (should (plist-get correct-grade :correct))
         (should-not (plist-get precursor-grade :correct))
         (should (string= (emacs-srs-trainer-card-display-answer card)
-                         answer))))))
+                         (or display-answer answer)))))))
 
 (ert-deftest emacs-srs-trainer-test-backspace-alternative-grading ()
   (let* ((card (emacs-srs-trainer-test--card "tutorial-delete-backward-char"))
@@ -1228,6 +1238,25 @@
 (ert-deftest emacs-srs-trainer-test-answer-capture-echo-compacts-typed-text ()
   (let ((unread-command-events
          (append (listify-key-sequence (kbd "M-x replace-string RET")) nil))
+        (card (emacs-srs-trainer-test--card "tutorial-replace-string"))
+        messages)
+    (cl-letf (((symbol-function 'message)
+               (lambda (format-string &rest args)
+                 (push (if (and (string= format-string "%s") args)
+                           (car args)
+                         (apply #'format-message format-string args))
+                       messages))))
+      (should (string= (emacs-srs-trainer-read-answer-key-sequence card)
+                       "M-x r e p l a c e - s t r i n g RET")))
+    (should (equal (substring-no-properties (car messages))
+                   "Answer: M-x replace-string RET"))
+    (should (eq (get-text-property (length "Answer: ") 'face (car messages))
+                'emacs-srs-trainer-correct-face))))
+
+(ert-deftest emacs-srs-trainer-test-answer-capture-treats-m-x-space-as-dash ()
+  (let ((unread-command-events
+         (append (listify-key-sequence (kbd "M-x replace SPC string RET"))
+                 nil))
         (card (emacs-srs-trainer-test--card "tutorial-replace-string"))
         messages)
     (cl-letf (((symbol-function 'message)
