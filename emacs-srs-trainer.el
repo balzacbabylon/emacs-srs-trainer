@@ -131,6 +131,17 @@ Each entry is (DECK-NAME . PLIST).  Supported properties are
 :card-type, either `main' or `reverse', and :reverse-mode, either
 `passive' or `active'.")
 
+(defconst emacs-srs-trainer--reload-features
+  '(emacs-srs-trainer
+    emacs-srs-trainer-validate
+    emacs-srs-trainer-tutorial
+    emacs-srs-trainer-storage
+    emacs-srs-trainer-scheduler
+    emacs-srs-trainer-org
+    emacs-srs-trainer-info
+    emacs-srs-trainer-deck)
+  "Features reloaded by `emacs-srs-trainer-reload-package'.")
+
 (define-derived-mode emacs-srs-trainer-review-mode fundamental-mode "Emacs-SRS"
   "Major mode for the Emacs SRS review buffer."
   (setq-local cursor-type nil)
@@ -160,6 +171,10 @@ Each entry is (DECK-NAME . PLIST).  Supported properties are
             #'emacs-srs-trainer-refresh)
 (define-key emacs-srs-trainer-mode-map (kbd "C-c C-g")
             #'emacs-srs-trainer-refresh)
+(define-key emacs-srs-trainer-mode-map (kbd "U")
+            #'emacs-srs-trainer-reload-package)
+(define-key emacs-srs-trainer-mode-map (kbd "C-c C-u")
+            #'emacs-srs-trainer-reload-package)
 (define-key emacs-srs-trainer-mode-map (kbd "q") #'quit-window)
 (define-key emacs-srs-trainer-mode-map (kbd "C-c C-q") #'quit-window)
 
@@ -1065,6 +1080,30 @@ return cards whose topic matches it.  DECK defaults to
       (pop-to-buffer target))
     target))
 
+;;;###autoload
+(defun emacs-srs-trainer-reload-package (&optional buffer)
+  "Reload Emacs SRS Trainer code and refresh BUFFER.
+
+This is intended for use after `package-vc-upgrade' while an Emacs SRS
+Trainer dashboard is already open.  Interactively, refresh the current
+trainer buffer when possible, otherwise refresh
+`emacs-srs-trainer-review-buffer-name'."
+  (interactive)
+  (let ((features emacs-srs-trainer--reload-features)
+        (target (or buffer
+                    (if (derived-mode-p 'emacs-srs-trainer-mode
+                                        'emacs-srs-trainer-review-mode)
+                        (current-buffer)
+                      (get-buffer-create
+                       emacs-srs-trainer-review-buffer-name)))))
+    (dolist (feature features)
+      (when (featurep feature)
+        (unload-feature feature t)))
+    (require 'emacs-srs-trainer)
+    (emacs-srs-trainer-refresh target)
+    (message "Reloaded emacs-srs-trainer")
+    target))
+
 (defun emacs-srs-trainer--goto-line-column (line column)
   "Move point to LINE and COLUMN in the current buffer."
   (goto-char (point-min))
@@ -1206,7 +1245,8 @@ PREFIX has the same meaning as in `emacs-srs-trainer-review-deck'."
                 (insert "\n")))
           (insert "No cards have been reviewed yet.\n"))
         (insert "\nKeys: r/C-c C-r review deck, m/C-c C-t cycle mode, ")
-        (insert "g/C-c C-g refresh, q/C-c C-q quit.\n")
+        (insert "g/C-c C-g refresh, U/C-c C-u reload package, ")
+        (insert "q/C-c C-q quit.\n")
         (goto-char (point-min))))))
 
 (defun emacs-srs-trainer--render-result

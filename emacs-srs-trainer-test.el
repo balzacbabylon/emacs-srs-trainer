@@ -716,10 +716,47 @@
               #'emacs-srs-trainer-cycle-deck-review-mode-at-point))
   (should (eq (lookup-key emacs-srs-trainer-mode-map (kbd "C-c C-g"))
               #'emacs-srs-trainer-refresh))
+  (should (eq (lookup-key emacs-srs-trainer-mode-map (kbd "U"))
+              #'emacs-srs-trainer-reload-package))
+  (should (eq (lookup-key emacs-srs-trainer-mode-map (kbd "C-c C-u"))
+              #'emacs-srs-trainer-reload-package))
   (should (eq (lookup-key emacs-srs-trainer-mode-map (kbd "C-c C-q"))
               #'quit-window))
   (should (eq (lookup-key emacs-srs-trainer-review-mode-map (kbd "C-c C-m"))
               #'emacs-srs-trainer-refresh)))
+
+(ert-deftest emacs-srs-trainer-test-reload-package-refreshes-dashboard ()
+  (let ((buffer (get-buffer-create " *emacs-srs-trainer-reload-test*"))
+        unloaded
+        required-feature
+        refreshed-buffer
+        messages)
+    (unwind-protect
+        (cl-letf (((symbol-function 'unload-feature)
+                   (lambda (feature &optional force)
+                     (push (list feature force) unloaded)))
+                  ((symbol-function 'require)
+                   (lambda (feature &optional _filename noerror)
+                     (setq required-feature feature)
+                     (unless noerror
+                       feature)))
+                  ((symbol-function 'emacs-srs-trainer-refresh)
+                   (lambda (&optional target)
+                     (setq refreshed-buffer target)
+                     target))
+                  ((symbol-function 'message)
+                   (lambda (format-string &rest args)
+                     (push (apply #'format-message format-string args)
+                           messages))))
+          (with-current-buffer buffer
+            (emacs-srs-trainer-mode)
+            (should (eq (emacs-srs-trainer-reload-package) buffer)))
+          (should (member (list 'emacs-srs-trainer t) unloaded))
+          (should (member (list 'emacs-srs-trainer-deck t) unloaded))
+          (should (eq required-feature 'emacs-srs-trainer))
+          (should (eq refreshed-buffer buffer))
+          (should (equal (car messages) "Reloaded emacs-srs-trainer")))
+      (ignore-errors (kill-buffer buffer)))))
 
 (ert-deftest emacs-srs-trainer-test-welcome-deck-mode-toggle ()
   (let* ((deck-name "Synthetic Welcome Toggle")
