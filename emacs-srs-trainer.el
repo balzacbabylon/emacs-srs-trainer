@@ -1065,6 +1065,37 @@ return cards whose topic matches it.  DECK defaults to
       (pop-to-buffer target))
     target))
 
+(defun emacs-srs-trainer--goto-line-column (line column)
+  "Move point to LINE and COLUMN in the current buffer."
+  (goto-char (point-min))
+  (forward-line (max 0 (1- line)))
+  (move-to-column column))
+
+(defun emacs-srs-trainer--refresh-preserving-position (&optional buffer)
+  "Refresh the dashboard in BUFFER while preserving point and window start."
+  (let* ((target (or buffer (current-buffer)))
+         (window (get-buffer-window target))
+         (point-line 1)
+         (point-column 0)
+         (start-line 1)
+         (start-column 0))
+    (with-current-buffer target
+      (setq point-line (line-number-at-pos (point))
+            point-column (current-column))
+      (when window
+        (save-excursion
+          (goto-char (window-start window))
+          (setq start-line (line-number-at-pos (point))
+                start-column (current-column)))))
+    (emacs-srs-trainer-refresh target)
+    (with-current-buffer target
+      (emacs-srs-trainer--goto-line-column point-line point-column)
+      (when window
+        (save-excursion
+          (emacs-srs-trainer--goto-line-column start-line start-column)
+          (set-window-start window (point) t))))
+    target))
+
 (defun emacs-srs-trainer-cycle-deck-review-mode-at-point (&optional backward)
   "Cycle the study mode for the deck at point.
 
@@ -1073,7 +1104,7 @@ With BACKWARD non-nil, cycle in the opposite direction."
   (if-let* ((deck-name (emacs-srs-trainer-deck-at-point)))
       (progn
         (emacs-srs-trainer-cycle-deck-review-mode deck-name backward)
-        (emacs-srs-trainer-refresh (current-buffer)))
+        (emacs-srs-trainer--refresh-preserving-position (current-buffer)))
     (user-error "No deck at point")))
 
 (defun emacs-srs-trainer-review-deck-at-point (&optional prefix)
@@ -1099,7 +1130,8 @@ PREFIX has the same meaning as in `emacs-srs-trainer-review-deck'."
    'action (lambda (button)
              (emacs-srs-trainer-cycle-deck-review-mode
               (button-get button 'deck-name))
-             (emacs-srs-trainer-refresh (current-buffer)))))
+             (emacs-srs-trainer--refresh-preserving-position
+              (current-buffer)))))
 
 (defun emacs-srs-trainer--insert-deck-button (deck-name state now)
   "Insert a welcome-screen button for DECK-NAME using STATE at NOW."
