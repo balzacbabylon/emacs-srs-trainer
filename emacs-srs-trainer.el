@@ -1123,6 +1123,7 @@ PREFIX has the same meaning as in `emacs-srs-trainer-review-deck'."
            (emacs-srs-trainer-deck-review-mode-abbreviation deck-name))
    'deck-name deck-name
    'deck-mode-button t
+   'skip t
    'follow-link t
    'face 'bold
    'help-echo (format "RET/mouse-1: cycle study mode; current: %s"

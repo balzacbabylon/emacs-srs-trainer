@@ -765,6 +765,35 @@
       (ignore-errors (kill-buffer buffer))
       (ignore-errors (delete-directory dir t)))))
 
+(ert-deftest emacs-srs-trainer-test-tab-skips-deck-mode-buttons ()
+  (let* ((first-deck "Synthetic Tab Alpha")
+         (second-deck "Synthetic Tab Beta")
+         (first-card (emacs-srs-trainer-test--synthetic-deck-card
+                      "synthetic-tab-alpha" first-deck "C-f"))
+         (second-card (emacs-srs-trainer-test--synthetic-deck-card
+                       "synthetic-tab-beta" second-deck "C-b"))
+         (buffer (get-buffer-create " *emacs-srs-trainer-tab-test*"))
+         (dir (make-temp-file "emacs-srs-trainer-tab-" t))
+         (file (expand-file-name "state.el" dir))
+         (emacs-srs-trainer-decks nil)
+         (emacs-srs-trainer-deck-options nil)
+         (emacs-srs-trainer-storage-file file))
+    (unwind-protect
+        (progn
+          (emacs-srs-trainer-register-deck first-deck (list first-card))
+          (emacs-srs-trainer-register-deck second-deck (list second-card))
+          (emacs-srs-trainer--render-welcome buffer)
+          (with-current-buffer buffer
+            (goto-char (point-min))
+            (forward-button 1)
+            (should (equal (emacs-srs-trainer-deck-at-point) first-deck))
+            (should-not (button-get (button-at (point)) 'deck-mode-button))
+            (forward-button 1)
+            (should (equal (emacs-srs-trainer-deck-at-point) second-deck))
+            (should-not (button-get (button-at (point)) 'deck-mode-button))))
+      (ignore-errors (kill-buffer buffer))
+      (ignore-errors (delete-directory dir t)))))
+
 (ert-deftest emacs-srs-trainer-test-review-loop-smoke ()
   (let* ((dir (make-temp-file "emacs-srs-trainer-review-" t))
          (file (expand-file-name "state.el" dir))
